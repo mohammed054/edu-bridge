@@ -1,84 +1,133 @@
 import { NavLink } from 'react-router-dom';
 import { ChevronIcon, MenuIcon } from '../components/AdminIcons';
-import { adminNavItems } from './navConfig';
+import { adminNavGroups } from './navConfig';
 
 export default function AdminSidebar({ collapsed, mobileOpen, onToggleCollapse, onCloseMobile }) {
   return (
     <>
-      {mobileOpen ? (
+      {mobileOpen && (
         <button
           type="button"
           onClick={onCloseMobile}
-          className="fixed inset-0 z-30 bg-slate-900/25 lg:hidden"
+          className="fixed inset-0 z-30 bg-black/30 lg:hidden"
           aria-label="إغلاق القائمة"
         />
-      ) : null}
+      )}
 
       <aside
-        className={`fixed right-0 top-0 z-40 h-screen border-l border-border bg-surface/95 backdrop-blur-md premium-transition ${
-          collapsed ? 'w-[92px]' : 'w-[288px]'
-        } ${mobileOpen ? 'translate-x-0' : 'translate-x-full'} lg:translate-x-0`}
+        className={`fixed right-0 top-0 z-40 h-screen flex flex-col bg-white premium-transition
+          ${collapsed ? 'w-[64px]' : 'w-[240px]'}
+          ${mobileOpen ? 'translate-x-0' : 'translate-x-full'}
+          lg:translate-x-0`}
+        style={{ borderLeft: '1px solid #E5E7EB' }}
       >
-        <div className="flex h-full flex-col">
-          <div className="flex items-center justify-between border-b border-border px-3 py-4">
-            <div className={`flex items-center gap-2 ${collapsed ? 'justify-center' : ''}`}>
-              <span className="inline-flex h-9 w-9 items-center justify-center rounded-md bg-card-gradient text-base font-bold text-primary">
+        {/* Brand */}
+        <div
+          className={`flex h-[64px] shrink-0 items-center border-b border-gray-100 px-4
+            ${collapsed ? 'justify-center' : 'justify-between'}`}
+        >
+          {!collapsed && (
+            <div className="flex items-center gap-2.5 min-w-0">
+              <span
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gray-900 text-xs font-bold text-white"
+              >
                 ح
               </span>
-              {!collapsed ? (
-                <div className="space-y-0">
-                  <p className="text-sm font-semibold text-text-primary">Hikmah School</p>
-                  <p className="text-xs text-text-secondary">منصة الإدارة</p>
-                </div>
-              ) : null}
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-gray-900 truncate">Hikmah School</p>
+                <p className="text-[11px] text-gray-400 mt-px">لوحة الإدارة</p>
+              </div>
             </div>
+          )}
 
+          {collapsed && (
+            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-gray-900 text-xs font-bold text-white">
+              ح
+            </span>
+          )}
+
+          {!collapsed && (
             <button
               type="button"
               onClick={onToggleCollapse}
-              className="focus-ring premium-transition hidden rounded-sm border border-border p-2 text-text-secondary hover:border-primary hover:text-primary lg:inline-flex"
+              className="hidden lg:flex h-7 w-7 items-center justify-center rounded-md text-gray-400 hover:bg-gray-100 hover:text-gray-600 premium-transition"
               aria-label="طي القائمة"
             >
-              {collapsed ? <MenuIcon className="h-4 w-4" /> : <ChevronIcon className="h-4 w-4" />}
+              <ChevronIcon className="h-3.5 w-3.5" />
             </button>
-          </div>
+          )}
 
-          <nav className="flex-1 overflow-y-auto px-2 py-3">
-            <ul className="space-y-1">
-              {adminNavItems.map((item, index) => {
-                const Icon = item.icon;
-                return (
-                  <li key={item.key} className="animate-fadeUp" style={{ animationDelay: `${index * 22}ms` }}>
-                    <NavLink
-                      to={item.to}
-                      end={item.to === '/admin'}
-                      onClick={onCloseMobile}
-                      className={({ isActive }) =>
-                        `group relative flex items-center gap-3 overflow-hidden rounded-sm py-3 text-sm font-semibold premium-transition pressable ${
-                          isActive
-                            ? 'bg-sidebar-active text-primary shadow-sm'
-                            : 'text-text-secondary hover:bg-background hover:text-primary'
-                        } ${collapsed ? 'justify-center px-2' : 'px-3'}`
-                      }
-                    >
-                      {({ isActive }) => (
-                        <>
-                          <span
-                            className={`premium-transition absolute right-0 top-2 h-[calc(100%-16px)] w-1 rounded-l-full bg-primary ${
-                              isActive ? 'scale-y-100 opacity-100' : 'scale-y-75 opacity-0'
-                            }`}
-                          />
-                          <Icon className="h-4 w-4 shrink-0" />
-                          {!collapsed ? <span>{item.label}</span> : null}
-                        </>
-                      )}
-                    </NavLink>
-                  </li>
-                );
-              })}
-            </ul>
-          </nav>
+          {collapsed && (
+            <button
+              type="button"
+              onClick={onToggleCollapse}
+              className="absolute bottom-4 right-1/2 translate-x-1/2 hidden lg:flex h-7 w-7 items-center justify-center rounded-md text-gray-400 hover:bg-gray-100 premium-transition"
+              aria-label="توسيع القائمة"
+            >
+              <MenuIcon className="h-3.5 w-3.5" />
+            </button>
+          )}
         </div>
+
+        {/* Nav */}
+        <nav className="flex-1 overflow-y-auto py-3 px-2.5" style={{ scrollbarWidth: 'none' }}>
+          {adminNavGroups.map((group, gi) => (
+            <div key={group.key} className={gi > 0 ? 'mt-4' : ''}>
+              {group.label && !collapsed && (
+                <p className="mb-1 px-2 text-[10px] font-semibold uppercase tracking-widest text-gray-400">
+                  {group.label}
+                </p>
+              )}
+              {group.label && collapsed && (
+                <div className="mx-auto mb-3 h-px w-6 bg-gray-200" />
+              )}
+
+              <ul className="space-y-0.5">
+                {group.items.map((item) => {
+                  const Icon = item.icon;
+                  return (
+                    <li key={item.key}>
+                      <NavLink
+                        to={item.to}
+                        end={item.to === '/admin'}
+                        onClick={onCloseMobile}
+                        className={({ isActive }) =>
+                          `group relative flex items-center gap-2.5 rounded-md py-2 text-[13px] font-medium premium-transition
+                          ${collapsed ? 'justify-center px-2' : 'px-2.5'}
+                          ${isActive
+                            ? 'bg-gray-100 text-gray-900'
+                            : 'text-gray-500 hover:bg-gray-50 hover:text-gray-800'
+                          }`
+                        }
+                      >
+                        {({ isActive }) => (
+                          <>
+                            {isActive && !collapsed && (
+                              <span className="absolute right-0 top-1/2 -translate-y-1/2 h-4 w-0.5 rounded-l-full bg-gray-900" />
+                            )}
+
+                            <Icon className={`h-4 w-4 shrink-0 ${isActive ? 'text-gray-900' : 'text-gray-400 group-hover:text-gray-600'}`} />
+
+                            {!collapsed && <span>{item.label}</span>}
+
+                            {collapsed && (
+                              <span
+                                className="pointer-events-none absolute right-full mr-2 whitespace-nowrap rounded-md border border-gray-200 bg-white px-2.5 py-1.5 text-xs font-medium text-gray-700 shadow-sm
+                                  opacity-0 group-hover:opacity-100 premium-transition z-50"
+                              >
+                                {item.label}
+                              </span>
+                            )}
+                          </>
+                        )}
+                      </NavLink>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          ))}
+        </nav>
       </aside>
     </>
   );

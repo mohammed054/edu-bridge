@@ -1,11 +1,11 @@
 export default function PageHeading({ title, subtitle, action }) {
   return (
-    <header className="mb-6 flex flex-wrap items-center justify-between gap-3">
-      <div className="space-y-1">
-        <h1 className="h2-premium">{title}</h1>
-        {subtitle ? <p className="caption-premium">{subtitle}</p> : null}
+    <header className="mb-6 flex flex-wrap items-end justify-between gap-3">
+      <div>
+        <h1 className="text-lg font-bold text-gray-900">{title}</h1>
+        {subtitle && <p className="mt-1 text-sm text-gray-500">{subtitle}</p>}
       </div>
-      {action}
+      {action && <div>{action}</div>}
     </header>
   );
-}   
+}

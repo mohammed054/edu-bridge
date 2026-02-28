@@ -8,13 +8,14 @@ import {
 } from './AdminIcons';
 
 const ICON_BY_KEY = {
-  students: StudentsIcon,
-  teachers: TeacherIcon,
-  classes: ClassIcon,
-  subjects: SubjectIcon,
-  surveys: SurveyIcon,
-  feedbacks: FeedbackIcon,
+  students:      StudentsIcon,
+  teachers:      TeacherIcon,
+  classes:       ClassIcon,
+  subjects:      SubjectIcon,
+  surveys:       SurveyIcon,
+  feedbacks:     FeedbackIcon,
   feedbackToday: FeedbackIcon,
+  homeworks:     ClassIcon,
 };
 
 export default function StatCard({ item }) {
@@ -22,28 +23,35 @@ export default function StatCard({ item }) {
   const isPositive = String(item.trendDirection || '').toLowerCase() !== 'down';
 
   return (
-    <article className="panel-card-hover">
+    <article
+      className="rounded-xl bg-white p-5"
+      style={{ border: '1px solid #E5E7EB' }}
+    >
       <div className="flex items-start justify-between gap-3">
-        <div className="space-y-1">
-          <p className="caption-premium">{item.label}</p>
-          <p className="text-3xl font-bold leading-none text-text-primary">
+        <div className="space-y-1.5">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+            {item.label}
+          </p>
+          <p className="text-3xl font-bold text-gray-900" style={{ fontVariantNumeric: 'tabular-nums' }}>
             {Number(item.value || 0).toLocaleString('en-US')}
           </p>
         </div>
-        <span className="inline-flex h-10 w-10 items-center justify-center rounded-md bg-card-gradient text-primary">
-          <Icon className="h-5 w-5" />
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-gray-100 text-gray-500">
+          <Icon className="h-4 w-4" />
         </span>
       </div>
 
-      <p
-        className={`mt-3 inline-flex rounded-full border px-2 py-1 text-xs font-semibold ${
-          isPositive
-            ? 'border-success/25 bg-success/10 text-success'
-            : 'border-danger/25 bg-danger/10 text-danger'
-        }`}
-      >
-        {item.trend || '0%'}
-      </p>
+      {item.trend && (
+        <p
+          className={`mt-4 inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold ${
+            isPositive
+              ? 'border-green-100 bg-green-50 text-green-700'
+              : 'border-red-100 bg-red-50 text-red-600'
+          }`}
+        >
+          {isPositive ? '↑' : '↓'} {item.trend}
+        </p>
+      )}
     </article>
   );
 }
