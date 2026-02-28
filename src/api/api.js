@@ -158,6 +158,66 @@ const request = async (path, { method = 'GET', token, body, auth = false } = {})
   return payload;
 };
 
+const requestText = async (path, { method = 'GET', token, body, auth = false } = {}) => {
+  const headers = {};
+  const sessionToken = token || getStoredSession()?.token;
+
+  if (body !== undefined) {
+    headers['Content-Type'] = 'application/json';
+  }
+
+  if (auth) {
+    if (!sessionToken) {
+      throw new ApiError('انتهت الجلسة. يرجى تسجيل الدخول مرة أخرى.', 401);
+    }
+
+    if (failedAuthToken && failedAuthToken !== sessionToken) {
+      resetAuthFailureState();
+    }
+
+    if (failedAuthToken === sessionToken || isTokenExpired(sessionToken)) {
+      const currentToken = getStoredSession()?.token;
+      failedAuthToken = sessionToken;
+      if (currentToken === sessionToken) {
+        clearStoredSession();
+      }
+      emitSessionExpiredOnce();
+      throw new ApiError('انتهت الجلسة. يرجى تسجيل الدخول مرة أخرى.', 401);
+    }
+
+    headers.Authorization = `Bearer ${sessionToken}`;
+  }
+
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    method,
+    headers,
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+  });
+
+  const payloadText = await response.text();
+
+  if (!response.ok) {
+    if (response.status === 401) {
+      const currentToken = getStoredSession()?.token;
+      failedAuthToken = sessionToken || currentToken || null;
+      if (!currentToken || !sessionToken || currentToken === sessionToken) {
+        clearStoredSession();
+        emitSessionExpiredOnce();
+      }
+    }
+
+    let payload = {};
+    try {
+      payload = payloadText ? JSON.parse(payloadText) : {};
+    } catch {
+      payload = {};
+    }
+    throw new ApiError(payload.message || 'تعذر تنفيذ الطلب.', response.status);
+  }
+
+  return payloadText;
+};
+
 export const login = async ({ role, identifier, password }) => {
   const normalizedRole = String(role || '').trim().toLowerCase();
 
@@ -496,6 +556,38 @@ export const deleteAdminScheduleEntry = (token, entryId) =>
     auth: true,
   });
 
+export const suggestAdminScheduleSlot = (token, body) =>
+  request('/admin/schedule/suggest-slot', {
+    method: 'POST',
+    token,
+    auth: true,
+    body,
+  });
+
+export const copyAdminSchedulePattern = (token, body) =>
+  request('/admin/schedule/pattern-copy', {
+    method: 'POST',
+    token,
+    auth: true,
+    body,
+  });
+
+export const previewAdminScheduleImport = (token, body) =>
+  request('/admin/schedule/import/preview', {
+    method: 'POST',
+    token,
+    auth: true,
+    body,
+  });
+
+export const confirmAdminScheduleImport = (token, body) =>
+  request('/admin/schedule/import/confirm', {
+    method: 'POST',
+    token,
+    auth: true,
+    body,
+  });
+
 export const fetchAdminIncidents = (token, query = {}) =>
   request(`/admin/incidents${toQueryString(query)}`, {
     token,
@@ -649,4 +741,189 @@ export const importUsers = (token, body, options = {}) =>
     token,
     auth: true,
     body,
+  });
+
+export const fetchEnterpriseHierarchy = (token) =>
+  request('/admin/enterprise/hierarchy', {
+    token,
+    auth: true,
+  });
+
+export const fetchEnterpriseDashboard = (token, query = {}) =>
+  request(`/admin/enterprise/dashboard${toQueryString(query)}`, {
+    token,
+    auth: true,
+  });
+
+export const fetchEnterpriseStudents = (token, query = {}) =>
+  request(`/admin/enterprise/students${toQueryString(query)}`, {
+    token,
+    auth: true,
+  });
+
+export const bulkUpdateEnterpriseStudents = (token, body) =>
+  request('/admin/enterprise/students/bulk-update', {
+    method: 'POST',
+    token,
+    auth: true,
+    body,
+  });
+
+export const exportEnterpriseStudents = (token, query = {}) =>
+  requestText(`/admin/enterprise/students/export${toQueryString(query)}`, {
+    token,
+    auth: true,
+  });
+
+export const fetchEnterpriseStudentDetail = (token, studentId) =>
+  request(`/admin/enterprise/students/${studentId}`, {
+    token,
+    auth: true,
+  });
+
+export const fetchEnterpriseTeachers = (token, query = {}) =>
+  request(`/admin/enterprise/teachers${toQueryString(query)}`, {
+    token,
+    auth: true,
+  });
+
+export const fetchEnterpriseTeacherDetail = (token, teacherId) =>
+  request(`/admin/enterprise/teachers/${teacherId}`, {
+    token,
+    auth: true,
+  });
+
+export const fetchEnterpriseClasses = (token) =>
+  request('/admin/enterprise/classes', {
+    token,
+    auth: true,
+  });
+
+export const fetchEnterpriseClassDetail = (token, classId) =>
+  request(`/admin/enterprise/classes/${classId}`, {
+    token,
+    auth: true,
+  });
+
+export const updateEnterpriseClassDetail = (token, classId, body) =>
+  request(`/admin/enterprise/classes/${classId}`, {
+    method: 'PATCH',
+    token,
+    auth: true,
+    body,
+  });
+
+export const exportEnterpriseClassRoster = (token, classId) =>
+  requestText(`/admin/enterprise/classes/${classId}/roster-export`, {
+    token,
+    auth: true,
+  });
+
+export const fetchSavedViews = (token, query = {}) =>
+  request(`/admin/enterprise/views${toQueryString(query)}`, {
+    token,
+    auth: true,
+  });
+
+export const createSavedView = (token, body) =>
+  request('/admin/enterprise/views', {
+    method: 'POST',
+    token,
+    auth: true,
+    body,
+  });
+
+export const deleteSavedView = (token, viewId) =>
+  request(`/admin/enterprise/views/${viewId}`, {
+    method: 'DELETE',
+    token,
+    auth: true,
+  });
+
+export const fetchSystemContext = (token) =>
+  request('/admin/enterprise/system/context', {
+    token,
+    auth: true,
+  });
+
+export const updateSystemContext = (token, body) =>
+  request('/admin/enterprise/system/context', {
+    method: 'PATCH',
+    token,
+    auth: true,
+    body,
+  });
+
+export const fetchPermissionMatrix = (token) =>
+  request('/admin/enterprise/system/permissions', {
+    token,
+    auth: true,
+  });
+
+export const updatePermissionMatrix = (token, body) =>
+  request('/admin/enterprise/system/permissions', {
+    method: 'PATCH',
+    token,
+    auth: true,
+    body,
+  });
+
+export const fetchNotificationWorkflow = (token, query = {}) =>
+  request(`/admin/enterprise/notifications/workflow${toQueryString(query)}`, {
+    token,
+    auth: true,
+  });
+
+export const updateNotificationWorkflow = (token, notificationId, body) =>
+  request(`/admin/enterprise/notifications/workflow/${notificationId}`, {
+    method: 'PATCH',
+    token,
+    auth: true,
+    body,
+  });
+
+export const fetchTicketWorkflow = (token, query = {}) =>
+  request(`/admin/enterprise/tickets/workflow${toQueryString(query)}`, {
+    token,
+    auth: true,
+  });
+
+export const updateTicketWorkflow = (token, ticketId, body) =>
+  request(`/admin/enterprise/tickets/workflow/${ticketId}`, {
+    method: 'PATCH',
+    token,
+    auth: true,
+    body,
+  });
+
+export const exportTicketWorkflow = (token) =>
+  requestText('/admin/enterprise/tickets/workflow/export', {
+    token,
+    auth: true,
+  });
+
+export const fetchSurveyLifecycle = (token) =>
+  request('/admin/enterprise/surveys/lifecycle', {
+    token,
+    auth: true,
+  });
+
+export const updateSurveyLifecycle = (token, surveyId, body) =>
+  request(`/admin/enterprise/surveys/lifecycle/${surveyId}`, {
+    method: 'PATCH',
+    token,
+    auth: true,
+    body,
+  });
+
+export const exportSurveyRawData = (token, surveyId) =>
+  requestText(`/admin/enterprise/surveys/${surveyId}/raw-export`, {
+    token,
+    auth: true,
+  });
+
+export const fetchObservabilitySnapshot = (token) =>
+  request('/admin/enterprise/observability', {
+    token,
+    auth: true,
   });

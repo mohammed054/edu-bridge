@@ -2,22 +2,19 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   createAdminSurvey,
   deleteAdminSurvey,
+  exportSurveyRawData,
   fetchAdminSurveys,
+  fetchSurveyLifecycle,
   updateAdminSurvey,
+  updateSurveyLifecycle,
 } from '../../../api/api';
 import { useAuth } from '../../../core/auth/useAuth';
 import PageHeading from '../components/PageHeading';
 
-const QUESTION_TYPES = [
-  { value: 'multiple_choice', label: 'اختيار من متعدد' },
-  { value: 'rating', label: 'تقييم رقمي (1-5)' },
-  { value: 'text', label: 'نص مفتوح' },
-];
-
-const createId = () => `${Date.now()}_${Math.random().toString(16).slice(2, 8)}`;
+const QUESTION_TYPES = ['multiple_choice', 'rating', 'text'];
 
 const createQuestion = () => ({
-  id: createId(),
+  id: `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
   type: 'multiple_choice',
   questionText: '',
   required: true,
@@ -31,168 +28,109 @@ const emptyForm = {
   questions: [createQuestion()],
 };
 
-const normalizeQuestionOptions = (options = []) =>
-  options.map((item) => String(item || '').trim()).filter(Boolean);
-
-const validateForm = (form) => {
-  const errors = [];
-
-  if (!String(form.title || '').trim()) {
-    errors.push('عنوان الاستبيان مطلوب.');
-  }
-
-  if (!Array.isArray(form.audience) || !form.audience.length) {
-    errors.push('اختر فئة واحدة على الأقل (طالب أو معلم).');
-  }
-
-  if (!Array.isArray(form.questions) || !form.questions.length) {
-    errors.push('أضف سؤالاً واحداً على الأقل.');
-  }
-
-  form.questions.forEach((question, index) => {
-    if (!String(question.questionText || '').trim()) {
-      errors.push(`السؤال ${index + 1}: نص السؤال مطلوب.`);
-    }
-
-    if (question.type === 'multiple_choice') {
-      const options = normalizeQuestionOptions(question.options);
-      const uniqueOptions = new Set(options);
-
-      if (options.length < 2) {
-        errors.push(`السؤال ${index + 1}: يجب إضافة خيارين على الأقل.`);
-      }
-
-      if (uniqueOptions.size !== options.length) {
-        errors.push(`السؤال ${index + 1}: يوجد خيارات مكررة.`);
-      }
-    }
-  });
-
-  return errors;
+const downloadCsv = (csvText, filename) => {
+  const blob = new Blob([csvText], { type: 'text/csv;charset=utf-8' });
+  const url = window.URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  document.body.removeChild(anchor);
+  window.URL.revokeObjectURL(url);
 };
-
-const mapSurveyToForm = (survey) => ({
-  title: survey.title || survey.name || '',
-  description: survey.description || '',
-  audience: Array.isArray(survey.audience) && survey.audience.length ? survey.audience : ['student'],
-  questions: (survey.questions || []).map((question) => ({
-    id: question.questionId || createId(),
-    type: question.type || 'text',
-    questionText: question.questionText || question.prompt || '',
-    required: Boolean(question.required),
-    options: question.type === 'multiple_choice' ? question.options || ['', ''] : [],
-  })),
-});
 
 export default function SurveyBuilderPage() {
   const { token } = useAuth();
 
   const [surveys, setSurveys] = useState([]);
+  const [lifecycleRows, setLifecycleRows] = useState([]);
   const [form, setForm] = useState(emptyForm);
   const [editingSurveyId, setEditingSurveyId] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [selectedLifecycleId, setSelectedLifecycleId] = useState('');
+  const [targetGradesInput, setTargetGradesInput] = useState('');
+  const [targetClassesInput, setTargetClassesInput] = useState('');
+  const [deadlineInput, setDeadlineInput] = useState('');
+  const [autoCloseAtDeadline, setAutoCloseAtDeadline] = useState(true);
+  const [previewEnabled, setPreviewEnabled] = useState(true);
 
-  const validationErrors = useMemo(() => validateForm(form), [form]);
+  const selectedLifecycle = useMemo(
+    () => lifecycleRows.find((item) => item.id === selectedLifecycleId) || null,
+    [lifecycleRows, selectedLifecycleId]
+  );
 
-  const loadSurveys = async () => {
+  const loadData = async () => {
     try {
       setLoading(true);
       setError('');
-      const payload = await fetchAdminSurveys(token);
-      setSurveys(payload.surveys || []);
+      const [surveyPayload, lifecyclePayload] = await Promise.all([
+        fetchAdminSurveys(token),
+        fetchSurveyLifecycle(token),
+      ]);
+      setSurveys(surveyPayload.surveys || []);
+      setLifecycleRows(lifecyclePayload.rows || []);
     } catch (loadError) {
-      setError(loadError.message || 'تعذر تحميل الاستبيانات.');
+      setError(loadError.message || 'Failed to load survey data.');
+      setSurveys([]);
+      setLifecycleRows([]);
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    loadSurveys();
+    loadData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [token]);
 
-  const setQuestion = (questionId, patch) => {
+  useEffect(() => {
+    if (!selectedLifecycle) return;
+    setDeadlineInput(selectedLifecycle.deadlineAt ? selectedLifecycle.deadlineAt.slice(0, 16) : '');
+    setTargetGradesInput((selectedLifecycle.targetGrades || []).join(', '));
+    setTargetClassesInput((selectedLifecycle.targetClasses || []).join(', '));
+    setAutoCloseAtDeadline(selectedLifecycle.autoCloseAtDeadline !== false);
+    setPreviewEnabled(selectedLifecycle.previewEnabled !== false);
+  }, [selectedLifecycle]);
+
+  const setQuestion = (id, patch) => {
     setForm((current) => ({
       ...current,
-      questions: current.questions.map((item) =>
-        item.id === questionId ? { ...item, ...patch } : item
-      ),
+      questions: current.questions.map((item) => (item.id === id ? { ...item, ...patch } : item)),
     }));
   };
 
-  const addQuestion = () => {
-    setForm((current) => ({
-      ...current,
-      questions: [...current.questions, createQuestion()],
-    }));
-  };
-
-  const removeQuestion = (questionId) => {
-    setForm((current) => ({
-      ...current,
-      questions: current.questions.filter((item) => item.id !== questionId),
-    }));
-  };
-
-  const addOption = (questionId) => {
-    const question = form.questions.find((item) => item.id === questionId);
-    if (!question || question.type !== 'multiple_choice') {
-      return;
-    }
-
-    setQuestion(questionId, { options: [...question.options, ''] });
-  };
-
-  const setOption = (questionId, optionIndex, value) => {
-    const question = form.questions.find((item) => item.id === questionId);
-    if (!question) {
-      return;
-    }
-
-    const nextOptions = [...(question.options || [])];
-    nextOptions[optionIndex] = value;
-    setQuestion(questionId, { options: nextOptions });
-  };
-
-  const removeOption = (questionId, optionIndex) => {
-    const question = form.questions.find((item) => item.id === questionId);
-    if (!question) {
-      return;
-    }
-
-    const nextOptions = (question.options || []).filter((_, index) => index !== optionIndex);
-    setQuestion(questionId, { options: nextOptions });
-  };
-
-  const resetBuilder = () => {
+  const resetForm = () => {
     setForm(emptyForm);
     setEditingSurveyId('');
   };
 
-  const handleSubmit = async (event) => {
+  const handleSaveSurvey = async (event) => {
     event.preventDefault();
-
-    if (validationErrors.length) {
-      setError(validationErrors[0]);
+    if (!form.title.trim()) {
+      setError('Survey title is required.');
+      return;
+    }
+    if (!form.questions.length) {
+      setError('Add at least one question.');
       return;
     }
 
-    const body = {
-      title: form.title,
-      description: form.description,
+    const payload = {
+      title: form.title.trim(),
+      description: form.description.trim(),
       audience: form.audience,
       questions: form.questions.map((question, index) => ({
         questionId: `q_${index + 1}`,
         type: question.type,
-        questionText: String(question.questionText || '').trim(),
-        required: Boolean(question.required),
+        questionText: question.questionText.trim(),
+        required: question.required === true,
         options:
           question.type === 'multiple_choice'
-            ? normalizeQuestionOptions(question.options)
+            ? (question.options || []).map((item) => String(item || '').trim()).filter(Boolean)
             : [],
       })),
     };
@@ -201,19 +139,17 @@ export default function SurveyBuilderPage() {
       setSaving(true);
       setError('');
       setSuccess('');
-
       if (editingSurveyId) {
-        await updateAdminSurvey(token, editingSurveyId, body);
-        setSuccess('تم تحديث الاستبيان بنجاح.');
+        await updateAdminSurvey(token, editingSurveyId, payload);
+        setSuccess('Survey updated.');
       } else {
-        await createAdminSurvey(token, body);
-        setSuccess('تم إنشاء الاستبيان بنجاح.');
+        await createAdminSurvey(token, payload);
+        setSuccess('Survey created.');
       }
-
-      resetBuilder();
-      await loadSurveys();
+      resetForm();
+      await loadData();
     } catch (saveError) {
-      setError(saveError.message || 'تعذر حفظ الاستبيان.');
+      setError(saveError.message || 'Failed to save survey.');
     } finally {
       setSaving(false);
     }
@@ -223,181 +159,161 @@ export default function SurveyBuilderPage() {
     setError('');
     setSuccess('');
     setEditingSurveyId(survey.id);
-    setForm(mapSurveyToForm(survey));
+    setForm({
+      title: survey.title || survey.name || '',
+      description: survey.description || '',
+      audience: Array.isArray(survey.audience) && survey.audience.length ? survey.audience : ['student'],
+      questions: (survey.questions || []).map((item) => ({
+        id: item.questionId || `${Date.now()}-${Math.random()}`,
+        type: item.type || 'text',
+        questionText: item.questionText || item.prompt || '',
+        required: item.required === true,
+        options: item.type === 'multiple_choice' ? item.options || ['', ''] : [],
+      })),
+    });
   };
 
   const handleDeleteSurvey = async (survey) => {
-    if (!window.confirm(`تأكيد حذف الاستبيان "${survey.title || survey.name}"؟`)) {
-      return;
-    }
-
+    if (!window.confirm(`Delete survey "${survey.title || survey.name}"?`)) return;
     try {
       setSaving(true);
       setError('');
-      setSuccess('');
       await deleteAdminSurvey(token, survey.id);
-      setSuccess('تم حذف الاستبيان.');
-
-      if (editingSurveyId === survey.id) {
-        resetBuilder();
-      }
-
-      await loadSurveys();
-    } catch (deleteError) {
-      setError(deleteError.message || 'تعذر حذف الاستبيان.');
+      setSuccess('Survey deleted.');
+      if (editingSurveyId === survey.id) resetForm();
+      await loadData();
+    } catch (saveError) {
+      setError(saveError.message || 'Failed to delete survey.');
     } finally {
       setSaving(false);
     }
   };
 
-  const toggleAudience = (role) => {
-    setForm((current) => {
-      const hasRole = current.audience.includes(role);
-      const nextAudience = hasRole
-        ? current.audience.filter((item) => item !== role)
-        : [...current.audience, role];
+  const patchLifecycle = async (surveyId, body, message) => {
+    try {
+      setSaving(true);
+      setError('');
+      await updateSurveyLifecycle(token, surveyId, body);
+      setSuccess(message || 'Survey lifecycle updated.');
+      await loadData();
+    } catch (saveError) {
+      setError(saveError.message || 'Failed to update survey lifecycle.');
+    } finally {
+      setSaving(false);
+    }
+  };
 
-      return {
-        ...current,
-        audience: nextAudience,
-      };
-    });
+  const handleApplyLifecycleSettings = async () => {
+    if (!selectedLifecycleId) {
+      setError('Select a survey lifecycle row first.');
+      return;
+    }
+
+    await patchLifecycle(
+      selectedLifecycleId,
+      {
+        deadlineAt: deadlineInput ? new Date(deadlineInput).toISOString() : null,
+        autoCloseAtDeadline,
+        previewEnabled,
+        targetGrades: targetGradesInput.split(',').map((item) => item.trim()).filter(Boolean),
+        targetClasses: targetClassesInput.split(',').map((item) => item.trim()).filter(Boolean),
+      },
+      'Lifecycle settings updated.'
+    );
+  };
+
+  const handleExportRaw = async (surveyId, title) => {
+    try {
+      setError('');
+      const csv = await exportSurveyRawData(token, surveyId);
+      const base = String(title || 'survey').replace(/[^a-z0-9-_]/gi, '-').toLowerCase();
+      downloadCsv(csv, `${base}-raw-${new Date().toISOString().slice(0, 10)}.csv`);
+    } catch (saveError) {
+      setError(saveError.message || 'Failed to export raw survey data.');
+    }
   };
 
   return (
     <div className="page-enter space-y-5 p-1">
       <PageHeading
-        title="إدارة الاستبيانات"
-        subtitle="بناء أسئلة ديناميكية متعددة الأنواع مع تحقق كامل قبل الحفظ."
+        title="Survey Builder and Lifecycle"
+        subtitle="Builder + publish lifecycle, targeting, participation metrics, and raw response exports."
       />
 
       {error ? <p className="rounded-sm border border-danger/25 bg-danger/5 px-3 py-2 text-sm text-danger">{error}</p> : null}
       {success ? <p className="rounded-sm border border-success/25 bg-success/10 px-3 py-2 text-sm text-success">{success}</p> : null}
 
-      <section className="panel-card">
-        <h2 className="mb-3 text-base font-semibold text-text-primary">
-          {editingSurveyId ? 'تعديل استبيان' : 'إنشاء استبيان جديد'}
-        </h2>
-
-        <form className="space-y-4" onSubmit={handleSubmit}>
+      <section className="panel-card space-y-4">
+        <h2 className="text-base font-semibold text-text-primary">{editingSurveyId ? 'Edit Survey' : 'Create Survey'}</h2>
+        <form className="space-y-3" onSubmit={handleSaveSurvey}>
           <div className="grid gap-3 md:grid-cols-2">
-            <input
-              value={form.title}
-              onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))}
-              className="focus-ring rounded-sm border border-border px-3 py-2 text-sm"
-              placeholder="عنوان الاستبيان"
-              required
-            />
-            <input
-              value={form.description}
-              onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))}
-              className="focus-ring rounded-sm border border-border px-3 py-2 text-sm"
-              placeholder="وصف مختصر (اختياري)"
-            />
+            <input value={form.title} onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))} className="focus-ring rounded-sm border border-border px-3 py-2 text-sm" placeholder="Survey title" />
+            <input value={form.description} onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))} className="focus-ring rounded-sm border border-border px-3 py-2 text-sm" placeholder="Description" />
           </div>
 
           <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={() => toggleAudience('student')}
-              className={`action-btn rounded-full px-3 py-1 text-xs ${
-                form.audience.includes('student') ? 'border-transparent bg-primary text-white' : ''
-              }`}
-            >
-              الطلاب
-            </button>
-            <button
-              type="button"
-              onClick={() => toggleAudience('teacher')}
-              className={`action-btn rounded-full px-3 py-1 text-xs ${
-                form.audience.includes('teacher') ? 'border-transparent bg-primary text-white' : ''
-              }`}
-            >
-              المعلمون
-            </button>
+            {['student', 'teacher'].map((role) => {
+              const active = form.audience.includes(role);
+              return (
+                <button
+                  key={role}
+                  type="button"
+                  className={`action-btn rounded-full px-3 py-1 text-xs ${active ? 'border-transparent bg-primary text-white' : ''}`}
+                  onClick={() =>
+                    setForm((current) => ({
+                      ...current,
+                      audience: active
+                        ? current.audience.filter((item) => item !== role)
+                        : [...current.audience, role],
+                    }))
+                  }
+                >
+                  {role}
+                </button>
+              );
+            })}
           </div>
 
           <div className="space-y-3">
             {form.questions.map((question, index) => (
-              <article key={question.id} className="animate-fadeUp rounded-sm border border-border bg-background p-3">
-                <div className="mb-2 flex items-center justify-between gap-2">
-                  <p className="text-sm font-semibold text-text-primary">السؤال {index + 1}</p>
+              <article key={question.id} className="rounded-sm border border-border bg-background p-3">
+                <div className="mb-2 flex items-center justify-between">
+                  <p className="text-sm font-semibold text-text-primary">Question {index + 1}</p>
                   <button
                     type="button"
                     className="action-btn"
-                    onClick={() => removeQuestion(question.id)}
-                    disabled={form.questions.length === 1}
+                    onClick={() =>
+                      setForm((current) => ({
+                        ...current,
+                        questions: current.questions.length <= 1 ? current.questions : current.questions.filter((item) => item.id !== question.id),
+                      }))
+                    }
                   >
-                    حذف السؤال
+                    Delete
                   </button>
                 </div>
 
-                <div className="grid gap-2 md:grid-cols-[1fr_190px_auto]">
-                  <input
-                    value={question.questionText}
-                    onChange={(event) =>
-                      setQuestion(question.id, { questionText: event.target.value })
-                    }
-                    className="focus-ring rounded-sm border border-border px-3 py-2 text-sm"
-                    placeholder="نص السؤال"
-                    required
-                  />
-
-                  <select
-                    value={question.type}
-                    onChange={(event) => {
-                      const nextType = event.target.value;
-                      setQuestion(question.id, {
-                        type: nextType,
-                        options: nextType === 'multiple_choice' ? ['', ''] : [],
-                      });
-                    }}
-                    className="focus-ring rounded-sm border border-border bg-white px-3 py-2 text-sm"
-                  >
-                    {QUESTION_TYPES.map((type) => (
-                      <option key={`${question.id}-${type.value}`} value={type.value}>
-                        {type.label}
-                      </option>
-                    ))}
+                <div className="grid gap-2 md:grid-cols-[1fr_180px_auto]">
+                  <input value={question.questionText} onChange={(event) => setQuestion(question.id, { questionText: event.target.value })} className="focus-ring rounded-sm border border-border px-3 py-2 text-sm" placeholder="Question text" />
+                  <select value={question.type} onChange={(event) => setQuestion(question.id, { type: event.target.value, options: event.target.value === 'multiple_choice' ? ['', ''] : [] })} className="focus-ring rounded-sm border border-border bg-white px-3 py-2 text-sm">
+                    {QUESTION_TYPES.map((type) => <option key={`${question.id}-${type}`} value={type}>{type}</option>)}
                   </select>
-
-                  <label className="inline-flex items-center gap-2 rounded-sm border border-border bg-surface px-3 py-2 text-sm">
-                    <input
-                      type="checkbox"
-                      checked={question.required}
-                      onChange={(event) =>
-                        setQuestion(question.id, { required: event.target.checked })
-                      }
-                    />
-                    إلزامي
+                  <label className="inline-flex items-center gap-2 rounded-sm border border-border bg-white px-3 py-2 text-sm">
+                    <input type="checkbox" checked={question.required} onChange={(event) => setQuestion(question.id, { required: event.target.checked })} />
+                    Required
                   </label>
                 </div>
 
                 {question.type === 'multiple_choice' ? (
-                  <div className="mt-3 space-y-2">
-                    <p className="text-xs font-semibold text-text-secondary">الخيارات</p>
+                  <div className="mt-2 space-y-2">
                     {(question.options || []).map((option, optionIndex) => (
                       <div key={`${question.id}-option-${optionIndex}`} className="flex gap-2">
-                        <input
-                          value={option}
-                          onChange={(event) =>
-                            setOption(question.id, optionIndex, event.target.value)
-                          }
-                          className="focus-ring w-full rounded-sm border border-border px-3 py-2 text-sm"
-                          placeholder={`الخيار ${optionIndex + 1}`}
-                        />
-                        <button
-                          type="button"
-                          className="action-btn"
-                          onClick={() => removeOption(question.id, optionIndex)}
-                          disabled={(question.options || []).length <= 2}
-                        >
-                          حذف
-                        </button>
+                        <input value={option} onChange={(event) => setQuestion(question.id, { options: (question.options || []).map((item, index2) => (index2 === optionIndex ? event.target.value : item)) })} className="focus-ring w-full rounded-sm border border-border px-3 py-2 text-sm" placeholder={`Option ${optionIndex + 1}`} />
+                        <button type="button" className="action-btn" onClick={() => setQuestion(question.id, { options: (question.options || []).length <= 2 ? question.options : question.options.filter((_, index2) => index2 !== optionIndex) })}>Delete</button>
                       </div>
                     ))}
-                    <button type="button" className="action-btn" onClick={() => addOption(question.id)}>
-                      إضافة خيار
+                    <button type="button" className="action-btn" onClick={() => setQuestion(question.id, { options: [...(question.options || []), ''] })}>
+                      Add option
                     </button>
                   </div>
                 ) : null}
@@ -406,60 +322,91 @@ export default function SurveyBuilderPage() {
           </div>
 
           <div className="flex flex-wrap gap-2">
-            <button type="button" className="action-btn" onClick={addQuestion}>
-              إضافة سؤال
+            <button type="button" className="action-btn" onClick={() => setForm((current) => ({ ...current, questions: [...current.questions, createQuestion()] }))}>
+              Add Question
             </button>
             <button type="submit" className="action-btn-primary" disabled={saving}>
-              {saving ? 'جارٍ الحفظ...' : editingSurveyId ? 'حفظ التعديلات' : 'إنشاء الاستبيان'}
+              {editingSurveyId ? 'Update Survey' : 'Create Survey'}
             </button>
-            {editingSurveyId ? (
-              <button type="button" className="action-btn" onClick={resetBuilder}>
-                إلغاء التعديل
-              </button>
-            ) : null}
+            {editingSurveyId ? <button type="button" className="action-btn" onClick={resetForm}>Cancel Edit</button> : null}
           </div>
         </form>
       </section>
 
       <section className="panel-card">
-        <h2 className="mb-3 text-base font-semibold text-text-primary">الاستبيانات الحالية</h2>
-
+        <h2 className="mb-3 text-base font-semibold text-text-primary">Surveys</h2>
         {loading ? (
-          <div className="grid gap-3">
-            <div className="skeleton h-16" />
-            <div className="skeleton h-16" />
-            <div className="skeleton h-16" />
-          </div>
+          <div className="grid gap-2"><div className="skeleton h-12" /><div className="skeleton h-12" /></div>
         ) : (
           <div className="space-y-2">
             {surveys.map((survey) => (
-              <article
-                key={survey.id}
-                className="rounded-sm border border-border bg-background p-3"
-              >
+              <article key={survey.id} className="rounded-sm border border-border bg-background p-3">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div>
                     <p className="text-sm font-semibold text-text-primary">{survey.title || survey.name}</p>
-                    <p className="text-xs text-text-secondary">
-                      أسئلة: {Number((survey.questions || []).length).toLocaleString('en-US')} | ردود:{' '}
-                      {Number(survey.totalResponses || 0).toLocaleString('en-US')}
-                    </p>
+                    <p className="text-xs text-text-secondary">Questions: {(survey.questions || []).length} | Responses: {Number(survey.totalResponses || 0)}</p>
                   </div>
-
                   <div className="flex gap-2">
-                    <button type="button" className="action-btn" onClick={() => handleEditSurvey(survey)}>
-                      تعديل
-                    </button>
-                    <button type="button" className="action-btn" onClick={() => handleDeleteSurvey(survey)}>
-                      حذف
-                    </button>
+                    <button type="button" className="action-btn" onClick={() => handleEditSurvey(survey)}>Edit</button>
+                    <button type="button" className="action-btn" onClick={() => handleDeleteSurvey(survey)}>Delete</button>
                   </div>
                 </div>
               </article>
             ))}
-            {!surveys.length ? <p className="text-sm text-text-secondary">لا توجد استبيانات حتى الآن.</p> : null}
+            {!surveys.length ? <p className="text-sm text-text-secondary">No surveys found.</p> : null}
           </div>
         )}
+      </section>
+
+      <section className="panel-card space-y-3">
+        <h2 className="text-base font-semibold text-text-primary">Survey Lifecycle Console</h2>
+        {loading ? (
+          <div className="grid gap-2"><div className="skeleton h-12" /><div className="skeleton h-12" /></div>
+        ) : (
+          <div className="space-y-2">
+            {(lifecycleRows || []).map((row) => (
+              <article key={row.id} className="rounded-sm border border-border bg-background p-3">
+                <div className="grid gap-2 lg:grid-cols-[1fr_auto_auto_auto_auto_auto]">
+                  <div>
+                    <p className="text-sm font-semibold text-text-primary">{row.title}</p>
+                    <p className="text-xs text-text-secondary">status: {row.publishStatus} | responses: {Number(row.responses || 0)} | audience: {(row.audience || []).join(', ') || '-'}</p>
+                    <p className="text-xs text-text-secondary">deadline: {row.deadlineAt ? new Date(row.deadlineAt).toLocaleString('en-US') : '-'}</p>
+                  </div>
+                  <button type="button" className="action-btn px-2 py-1 text-[11px]" onClick={() => setSelectedLifecycleId(row.id)}>Configure</button>
+                  <button type="button" className="action-btn px-2 py-1 text-[11px]" onClick={() => patchLifecycle(row.id, { action: 'publish' }, 'Survey published.')}>Publish</button>
+                  <button type="button" className="action-btn px-2 py-1 text-[11px]" onClick={() => patchLifecycle(row.id, { action: 'unpublish' }, 'Survey unpublished.')}>Unpublish</button>
+                  <button type="button" className="action-btn px-2 py-1 text-[11px]" onClick={() => patchLifecycle(row.id, { action: 'close' }, 'Survey closed.')}>Close</button>
+                  <button type="button" className="action-btn px-2 py-1 text-[11px]" onClick={() => handleExportRaw(row.id, row.title)}>Export Raw</button>
+                </div>
+              </article>
+            ))}
+            {!lifecycleRows.length ? <p className="text-sm text-text-secondary">No lifecycle rows found.</p> : null}
+          </div>
+        )}
+
+        {selectedLifecycle ? (
+          <article className="rounded-sm border border-border bg-background p-3">
+            <h3 className="text-sm font-semibold text-text-primary">Lifecycle Settings for {selectedLifecycle.title}</h3>
+            <div className="mt-3 grid gap-3 md:grid-cols-2">
+              <input type="datetime-local" value={deadlineInput} onChange={(event) => setDeadlineInput(event.target.value)} className="focus-ring rounded-sm border border-border px-3 py-2 text-sm" />
+              <input value={targetGradesInput} onChange={(event) => setTargetGradesInput(event.target.value)} className="focus-ring rounded-sm border border-border px-3 py-2 text-sm" placeholder="Target grades (comma separated)" />
+              <input value={targetClassesInput} onChange={(event) => setTargetClassesInput(event.target.value)} className="focus-ring rounded-sm border border-border px-3 py-2 text-sm" placeholder="Target classes (comma separated)" />
+              <div className="flex flex-wrap gap-4">
+                <label className="inline-flex items-center gap-2 text-sm">
+                  <input type="checkbox" checked={autoCloseAtDeadline} onChange={(event) => setAutoCloseAtDeadline(event.target.checked)} />
+                  Auto close at deadline
+                </label>
+                <label className="inline-flex items-center gap-2 text-sm">
+                  <input type="checkbox" checked={previewEnabled} onChange={(event) => setPreviewEnabled(event.target.checked)} />
+                  Preview enabled
+                </label>
+              </div>
+            </div>
+            <button type="button" className="action-btn-primary mt-3" onClick={handleApplyLifecycleSettings} disabled={saving}>
+              Save Lifecycle Settings
+            </button>
+          </article>
+        ) : null}
       </section>
     </div>
   );

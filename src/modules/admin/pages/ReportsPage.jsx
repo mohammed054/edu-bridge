@@ -1,125 +1,253 @@
 import { useEffect, useMemo, useState } from 'react';
-import { fetchAdminReports } from '../../../api/api';
+import {
+  exportEnterpriseStudents,
+  exportTicketWorkflow,
+  fetchEnterpriseClasses,
+  fetchEnterpriseDashboard,
+} from '../../../api/api';
 import { useAuth } from '../../../core/auth/useAuth';
 import PageHeading from '../components/PageHeading';
+
+const downloadText = (text, filename, mimeType = 'text/plain;charset=utf-8') => {
+  const blob = new Blob([text], { type: mimeType });
+  const url = window.URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  document.body.removeChild(anchor);
+  window.URL.revokeObjectURL(url);
+};
 
 export default function ReportsPage() {
   const { token } = useAuth();
 
   const [loading, setLoading] = useState(true);
+  const [exporting, setExporting] = useState(false);
   const [error, setError] = useState('');
-  const [reports, setReports] = useState(null);
+  const [success, setSuccess] = useState('');
+
+  const [dashboard, setDashboard] = useState(null);
+  const [classes, setClasses] = useState([]);
+
+  const [gradeFilter, setGradeFilter] = useState('');
+  const [classFilter, setClassFilter] = useState('');
+
+  const [reportType, setReportType] = useState('students_filtered');
+
+  const loadReports = async () => {
+    try {
+      setLoading(true);
+      setError('');
+      const [dashboardPayload, classesPayload] = await Promise.all([
+        fetchEnterpriseDashboard(token, { grade: gradeFilter, className: classFilter }),
+        fetchEnterpriseClasses(token),
+      ]);
+      setDashboard(dashboardPayload);
+      setClasses(classesPayload.rows || []);
+    } catch (loadError) {
+      setError(loadError.message || 'Failed to load analytics reports.');
+      setDashboard(null);
+      setClasses([]);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    let active = true;
-
-    const loadReports = async () => {
-      try {
-        setLoading(true);
-        setError('');
-        const payload = await fetchAdminReports(token);
-        if (!active) {
-          return;
-        }
-        setReports(payload);
-      } catch (loadError) {
-        if (active) {
-          setError(loadError.message || 'تعذر تحميل التقارير.');
-        }
-      } finally {
-        if (active) {
-          setLoading(false);
-        }
-      }
-    };
-
     loadReports();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token, gradeFilter, classFilter]);
 
-    return () => {
-      active = false;
+  const gradeOptions = useMemo(
+    () => [...new Set(classes.map((item) => String(item.grade || '').trim()).filter(Boolean))].sort(),
+    [classes]
+  );
+
+  const classOptions = useMemo(() => classes.map((item) => item.name).filter(Boolean).sort(), [classes]);
+
+  const dashboardMetrics = useMemo(() => {
+    if (!dashboard) return null;
+    return {
+      riskCount: (dashboard.highRiskStudents || []).length,
+      conflictCount: (dashboard.scheduleConflicts || []).length,
+      pendingTickets: Number(dashboard.pendingFeedbackTickets || 0),
+      surveyParticipationRate: Number(dashboard.surveyParticipationRate || 0),
+      surveyResponseCount: Number(dashboard.surveyResponseCount || 0),
+      queueUnread: Number(dashboard.notificationQueue?.unread || 0),
     };
-  }, [token]);
+  }, [dashboard]);
 
-  const cards = useMemo(() => {
-    if (!reports?.totals) {
-      return [];
+  const handleExport = async () => {
+    try {
+      setExporting(true);
+      setError('');
+      setSuccess('');
+
+      if (reportType === 'students_filtered') {
+        const csv = await exportEnterpriseStudents(token, { className: classFilter });
+        downloadText(csv, `students-report-${new Date().toISOString().slice(0, 10)}.csv`, 'text/csv;charset=utf-8');
+      } else if (reportType === 'tickets_workflow') {
+        const csv = await exportTicketWorkflow(token);
+        downloadText(csv, `tickets-report-${new Date().toISOString().slice(0, 10)}.csv`, 'text/csv;charset=utf-8');
+      } else if (reportType === 'dashboard_snapshot') {
+        downloadText(
+          JSON.stringify(
+            {
+              generatedAt: new Date().toISOString(),
+              filters: { gradeFilter, classFilter },
+              dashboard,
+              classes,
+            },
+            null,
+            2
+          ),
+          `dashboard-snapshot-${new Date().toISOString().slice(0, 10)}.json`,
+          'application/json;charset=utf-8'
+        );
+      } else if (reportType === 'print_pdf') {
+        window.print();
+      }
+
+      setSuccess('Report export completed.');
+    } catch (saveError) {
+      setError(saveError.message || 'Failed to export report.');
+    } finally {
+      setExporting(false);
     }
-
-    return [
-      { key: 'students', title: 'إجمالي الطلاب', value: reports.totals.students || 0 },
-      { key: 'teachers', title: 'إجمالي المعلمين', value: reports.totals.teachers || 0 },
-      { key: 'classes', title: 'إجمالي الصفوف', value: reports.totals.classes || 0 },
-      { key: 'subjects', title: 'إجمالي المواد', value: reports.totals.subjects || 0 },
-      { key: 'feedbacks', title: 'إجمالي التغذية الراجعة', value: reports.totals.feedbacks || 0 },
-      { key: 'homeworks', title: 'إجمالي الواجبات', value: reports.totals.homeworks || 0 },
-    ];
-  }, [reports]);
+  };
 
   return (
     <div className="page-enter space-y-5 p-1">
       <PageHeading
-        title="التقارير"
-        subtitle="مؤشرات تشغيلية مباشرة مبنية على بيانات النظام الحالية."
+        title="Analytics and Reporting Engine"
+        subtitle="Operational dashboard with drill-down signals, comparative indicators, risk scoring surfaces, and custom exports."
       />
 
       {error ? <p className="rounded-sm border border-danger/25 bg-danger/5 px-3 py-2 text-sm text-danger">{error}</p> : null}
+      {success ? <p className="rounded-sm border border-success/25 bg-success/10 px-3 py-2 text-sm text-success">{success}</p> : null}
 
       <section className="panel-card">
-        {loading ? (
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-            <div className="skeleton h-[112px]" />
-            <div className="skeleton h-[112px]" />
-            <div className="skeleton h-[112px]" />
-            <div className="skeleton h-[112px]" />
-            <div className="skeleton h-[112px]" />
-            <div className="skeleton h-[112px]" />
-          </div>
-        ) : (
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-            {cards.map((report) => (
-              <article key={report.key} className="panel-card-hover">
-                <p className="caption-premium">{report.title}</p>
-                <p className="mt-2 text-3xl font-bold text-text-primary">
-                  {Number(report.value || 0).toLocaleString('en-US')}
-                </p>
-              </article>
-            ))}
-          </div>
-        )}
-      </section>
-
-      <section className="panel-card">
-        <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-base font-semibold text-text-primary">ملخص الاستبيانات</h2>
-          <p className="caption-premium">
-            {reports?.generatedAt
-              ? `آخر تحديث: ${new Date(reports.generatedAt).toLocaleString('en-US')}`
-              : ''}
-          </p>
+        <div className="grid gap-3 md:grid-cols-4">
+          <select value={gradeFilter} onChange={(event) => setGradeFilter(event.target.value)} className="focus-ring rounded-sm border border-border bg-white px-3 py-2 text-sm">
+            <option value="">All grades</option>
+            {gradeOptions.map((item) => <option key={item} value={item}>{item}</option>)}
+          </select>
+          <select value={classFilter} onChange={(event) => setClassFilter(event.target.value)} className="focus-ring rounded-sm border border-border bg-white px-3 py-2 text-sm">
+            <option value="">All classes</option>
+            {classOptions.map((item) => <option key={item} value={item}>{item}</option>)}
+          </select>
+          <select value={reportType} onChange={(event) => setReportType(event.target.value)} className="focus-ring rounded-sm border border-border bg-white px-3 py-2 text-sm">
+            <option value="students_filtered">Export Students CSV</option>
+            <option value="tickets_workflow">Export Tickets CSV</option>
+            <option value="dashboard_snapshot">Export Dashboard Snapshot JSON</option>
+            <option value="print_pdf">Print to PDF</option>
+          </select>
+          <button type="button" className="action-btn-primary" onClick={handleExport} disabled={exporting || loading}>
+            Run Report Export
+          </button>
         </div>
-
-        {loading ? (
-          <div className="grid gap-2">
-            <div className="skeleton h-12" />
-            <div className="skeleton h-12" />
-          </div>
-        ) : (
-          <div className="space-y-2">
-            {(reports?.surveys || []).slice(0, 8).map((survey) => (
-              <article key={survey.id} className="rounded-sm border border-border bg-background p-3">
-                <p className="text-sm font-semibold text-text-primary">{survey.name}</p>
-                <p className="text-xs text-text-secondary">
-                  الفئة: {(survey.audience || []).join(', ') || '-'} | الردود:{' '}
-                  {Number(survey.totalResponses || 0).toLocaleString('en-US')}
-                </p>
-              </article>
-            ))}
-            {!reports?.surveys?.length ? (
-              <p className="text-sm text-text-secondary">لا توجد استبيانات حالياً.</p>
-            ) : null}
-          </div>
-        )}
       </section>
+
+      {loading ? (
+        <section className="panel-card">
+          <div className="grid gap-2">
+            <div className="skeleton h-16" />
+            <div className="skeleton h-16" />
+            <div className="skeleton h-16" />
+          </div>
+        </section>
+      ) : (
+        <>
+          <section className="grid gap-3 md:grid-cols-3 xl:grid-cols-6">
+            <article className="panel-card-hover">
+              <p className="text-xs text-text-secondary">High-Risk Students</p>
+              <p className="mt-2 text-2xl font-bold text-text-primary">{Number(dashboardMetrics?.riskCount || 0)}</p>
+            </article>
+            <article className="panel-card-hover">
+              <p className="text-xs text-text-secondary">Schedule Conflicts</p>
+              <p className="mt-2 text-2xl font-bold text-text-primary">{Number(dashboardMetrics?.conflictCount || 0)}</p>
+            </article>
+            <article className="panel-card-hover">
+              <p className="text-xs text-text-secondary">Pending Tickets</p>
+              <p className="mt-2 text-2xl font-bold text-text-primary">{Number(dashboardMetrics?.pendingTickets || 0)}</p>
+            </article>
+            <article className="panel-card-hover">
+              <p className="text-xs text-text-secondary">Survey Participation</p>
+              <p className="mt-2 text-2xl font-bold text-text-primary">{Number(dashboardMetrics?.surveyParticipationRate || 0).toFixed(2)}%</p>
+            </article>
+            <article className="panel-card-hover">
+              <p className="text-xs text-text-secondary">Survey Responses</p>
+              <p className="mt-2 text-2xl font-bold text-text-primary">{Number(dashboardMetrics?.surveyResponseCount || 0)}</p>
+            </article>
+            <article className="panel-card-hover">
+              <p className="text-xs text-text-secondary">Unread Notifications</p>
+              <p className="mt-2 text-2xl font-bold text-text-primary">{Number(dashboardMetrics?.queueUnread || 0)}</p>
+            </article>
+          </section>
+
+          <section className="grid gap-4 xl:grid-cols-2">
+            <article className="panel-card">
+              <h2 className="mb-3 text-base font-semibold text-text-primary">Attendance Trend (Weekly Snapshot)</h2>
+              <div className="space-y-2">
+                {(dashboard?.attendanceRateTrends || []).slice(0, 10).map((item, index) => (
+                  <div key={`${item.studentId || index}-${item.className || ''}`} className="rounded-sm border border-border bg-background p-2 text-xs">
+                    <p className="font-semibold text-text-primary">{item.studentName || 'Student'} | {item.className || '-'}</p>
+                    <p className="text-text-secondary">Risk: {item.riskStatus || '-'} | Attendance: {item.attendanceRate ?? '-'}</p>
+                  </div>
+                ))}
+                {!dashboard?.attendanceRateTrends?.length ? <p className="text-xs text-text-secondary">No weekly trend rows available.</p> : null}
+              </div>
+            </article>
+
+            <article className="panel-card">
+              <h2 className="mb-3 text-base font-semibold text-text-primary">Teacher Workload Heatmap</h2>
+              <div className="space-y-2">
+                {(dashboard?.teacherWorkloadHeatmap || []).slice(0, 12).map((item) => (
+                  <div key={item.teacherName} className="rounded-sm border border-border bg-background p-2">
+                    <div className="mb-1 flex items-center justify-between text-xs">
+                      <span className="font-semibold text-text-primary">{item.teacherName}</span>
+                      <span className="text-text-secondary">{Number(item.sessions || 0)} sessions</span>
+                    </div>
+                    <div className="h-2 rounded-full bg-border">
+                      <div className="h-2 rounded-full bg-primary" style={{ width: `${Math.min(100, Number(item.sessions || 0) * 5)}%` }} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </article>
+          </section>
+
+          <section className="grid gap-4 xl:grid-cols-2">
+            <article className="panel-card">
+              <h2 className="mb-3 text-base font-semibold text-text-primary">Class Capacity Utilization</h2>
+              <div className="space-y-2">
+                {(dashboard?.classCapacityUtilization || []).slice(0, 20).map((item) => (
+                  <div key={item.className} className="rounded-sm border border-border bg-background p-2 text-xs">
+                    <p className="font-semibold text-text-primary">{item.className}</p>
+                    <p className="text-text-secondary">Enrolled: {item.enrolled} / {item.capacity} | Utilization: {Number(item.utilizationRate || 0).toFixed(2)}%</p>
+                  </div>
+                ))}
+              </div>
+            </article>
+
+            <article className="panel-card">
+              <h2 className="mb-3 text-base font-semibold text-text-primary">Schedule Conflict Alerts</h2>
+              <div className="space-y-2">
+                {(dashboard?.scheduleConflicts || []).slice(0, 20).map((item) => (
+                  <div key={item.id} className="rounded-sm border border-danger/40 bg-danger/5 p-2 text-xs">
+                    <p className="font-semibold text-text-primary">{item.className} | {item.teacherName}</p>
+                    <p className="text-text-secondary">Day {item.dayOfWeek} | {item.startTime} - {item.endTime} | Room {item.room || '-'}</p>
+                    <p className="text-danger">Conflicts: {(item.conflictFlags || []).join(', ')}</p>
+                  </div>
+                ))}
+                {!dashboard?.scheduleConflicts?.length ? <p className="text-xs text-text-secondary">No conflicts detected.</p> : null}
+              </div>
+            </article>
+          </section>
+        </>
+      )}
     </div>
   );
 }
