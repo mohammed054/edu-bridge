@@ -1,0 +1,552 @@
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+import { fetchStudentPortal } from '../../api/api';
+import { useAuth } from '../../core/auth/useAuth';
+import SubjectPage from './components/SubjectPage';
+import { resolveSubjectImage } from './utils/subjectVisuals';
+import { formatDate, formatNumber } from './utils/format';
+import './studentPortal.css';
+
+/* ─── constants ─── */
+const CATEGORY_MAP = { academic: 'أكاديمي', moral: 'سلوك', behavior: 'سلوك', idfk: 'أخرى' };
+const mapCat = (v) => CATEGORY_MAP[String(v || '').trim().toLowerCase()] || v || 'أخرى';
+
+const ACCENTS = ['#2C7BE5','#00C853','#FFB300','#D32F2F','#8B5CF6','#F97316','#14B8A6'];
+const DIRECTION_AR = { improving: 'في تحسّن', declining: 'يحتاج متابعة', stable: 'مستقر' };
+const RISK_AR      = { low: { label: 'منخفض', color: '#00C853' }, medium: { label: 'متوسط', color: '#FFB300' }, high: { label: 'مرتفع', color: '#D32F2F' } };
+const ENGAGE_AR    = { active: 'نشط ومتفاعل', moderate: 'متوسط', low: 'يحتاج اهتماماً' };
+const CATCOLOR     = { أكاديمي: { bg:'#EFF6FF',c:'#2C7BE5' }, سلوك: { bg:'#FFFBEB',c:'#D97706' }, واجبات: { bg:'#F0FDF4',c:'#00C853' }, أخرى: { bg:'#F8FAFC',c:'#475569' } };
+const TYPE_COLOR   = { 'موعد نهائي': { dot:'#D32F2F',c:'#D32F2F' }, إعلان: { dot:'#2C7BE5',c:'#2C7BE5' }, ملف: { dot:'#94A3B8',c:'#475569' }, نموذج: { dot:'#F59E0B',c:'#D97706' } };
+
+/* ─── icons ─── */
+function Icon({ d, size = 18 }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" style={{ width: size, height: size, flexShrink: 0 }} aria-hidden="true">
+      <path d={d} stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+const ChevRight = () => <Icon d="m9 18 6-6-6-6" />;
+const ChevLeft  = () => <Icon d="m15 18-6-6 6-6" />;
+const BellIcon  = () => <Icon d="M12 3a4 4 0 0 0-4 4v2.2c0 .8-.2 1.6-.7 2.3L6 13.4v1.1h12v-1.1l-1.3-1.9a4.2 4.2 0 0 1-.7-2.3V7a4 4 0 0 0-4-4Zm-2 14a2 2 0 0 0 4 0" />;
+
+/* ─── sub-views inside the portal ─── */
+const VIEW = { dashboard: 'dashboard', feedback: 'feedback', announcements: 'announcements', snapshot: 'snapshot', subject: 'subject' };
+
+/* ════════════════════════════════════════
+   SUBJECT CAROUSEL  (with arrow nav)
+════════════════════════════════════════ */
+function SubjectCarousel({ subjects, onSelect }) {
+  const VISIBLE = 5; // cards visible at once
+  const [start, setStart] = useState(0);
+  const canPrev = start > 0;
+  const canNext = start + VISIBLE < subjects.length;
+
+  const prev = () => setStart((s) => Math.max(0, s - 1));
+  const next = () => setStart((s) => Math.min(subjects.length - VISIBLE, s + 1));
+
+  const visible = subjects.slice(start, start + VISIBLE);
+
+  return (
+    <div className="relative">
+      <div className="flex items-stretch gap-4">
+        {/* Prev arrow */}
+        <button
+          type="button"
+          onClick={prev}
+          disabled={!canPrev}
+          className="flex-shrink-0 w-10 flex items-center justify-center rounded-sm border border-border bg-surface premium-transition hover:shadow-sm disabled:opacity-25 disabled:cursor-not-allowed"
+        >
+          <ChevRight />
+        </button>
+
+        {/* Cards */}
+        <div className="flex-1 grid gap-4" style={{ gridTemplateColumns: `repeat(${VISIBLE}, minmax(0, 1fr))` }}>
+          {visible.map((subject, i) => {
+            const accent = ACCENTS[(start + i) % ACCENTS.length];
+            return (
+              <button
+                key={subject.id}
+                type="button"
+                onClick={() => onSelect(subject.id)}
+                className="subject-card rounded-md border border-border bg-surface text-right overflow-hidden focus-ring pressable group"
+              >
+                {/* accent top bar */}
+                <div className="h-1 w-full" style={{ background: accent }} />
+
+                {/* icon zone */}
+                <div className="flex items-center justify-center py-6 bg-slate-50">
+                  <img
+                    src={subject.image}
+                    alt={subject.name}
+                    className="w-20 h-20 object-contain group-hover:scale-105 transition-transform duration-200"
+                  />
+                </div>
+
+                {/* info */}
+                <div className="px-4 py-3 border-t border-border">
+                  <p className="text-[14px] font-semibold text-text-primary leading-snug truncate">{subject.name}</p>
+                  <p className="text-[12px] text-text-secondary mt-0.5 truncate">{subject.teacher}</p>
+                  <p className="mt-2 text-[11px] font-semibold" style={{ color: accent }}>عرض المادة →</p>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Next arrow */}
+        <button
+          type="button"
+          onClick={next}
+          disabled={!canNext}
+          className="flex-shrink-0 w-10 flex items-center justify-center rounded-sm border border-border bg-surface premium-transition hover:shadow-sm disabled:opacity-25 disabled:cursor-not-allowed"
+        >
+          <ChevLeft />
+        </button>
+      </div>
+
+      {/* Dots */}
+      {subjects.length > VISIBLE && (
+        <div className="flex justify-center gap-1.5 mt-4">
+          {subjects.map((_, i) => (
+            <div
+              key={i}
+              className="h-1.5 rounded-full premium-transition"
+              style={{
+                width: i >= start && i < start + VISIBLE ? 20 : 6,
+                background: i >= start && i < start + VISIBLE ? '#2C7BE5' : '#E2E8F0',
+              }}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ════════════════════════════════════════
+   FEEDBACK VIEW  (full page)
+════════════════════════════════════════ */
+function FeedbackView({ items, onBack }) {
+  return (
+    <div>
+      <div className="flex items-center gap-3 mb-6">
+        <button type="button" onClick={onBack} className="action-btn focus-ring pressable">← رجوع</button>
+        <h2 className="h2-premium">الملاحظات</h2>
+        <span className="text-[12px] text-text-secondary bg-slate-100 border border-border px-2.5 py-0.5 rounded-full">{items.length}</span>
+      </div>
+      {!items.length ? (
+        <div className="panel-card py-16 text-center">
+          <p className="text-[15px] font-semibold text-text-primary">لا توجد ملاحظات حالياً</p>
+          <p className="caption-premium mt-1">ستظهر ملاحظات المعلمين هنا.</p>
+        </div>
+      ) : (
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {items.map((item) => {
+            const s = CATCOLOR[item.category] || CATCOLOR['أخرى'];
+            return (
+              <div key={item.id} className="panel-card-hover">
+                <div className="flex items-start justify-between gap-3 mb-2">
+                  <p className="text-[14px] font-semibold text-text-primary">{item.subjectName}</p>
+                  <span className="flex-shrink-0 text-[11px] font-semibold px-2 py-0.5 rounded-full" style={{ background: s.bg, color: s.c }}>{item.category}</span>
+                </div>
+                <p className="text-[13px] text-text-secondary leading-relaxed clamp-3">{item.preview}</p>
+                <p className="mt-2 text-[11px] text-text-secondary">{formatDate(item.date)}</p>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ════════════════════════════════════════
+   ANNOUNCEMENTS VIEW  (full page)
+════════════════════════════════════════ */
+function AnnouncementsView({ items, onBack }) {
+  return (
+    <div>
+      <div className="flex items-center gap-3 mb-6">
+        <button type="button" onClick={onBack} className="action-btn focus-ring pressable">← رجوع</button>
+        <h2 className="h2-premium">الإعلانات</h2>
+        <span className="text-[12px] text-text-secondary bg-slate-100 border border-border px-2.5 py-0.5 rounded-full">{items.length}</span>
+      </div>
+      {!items.length ? (
+        <div className="panel-card py-16 text-center">
+          <p className="text-[15px] font-semibold text-text-primary">لا توجد إعلانات</p>
+          <p className="caption-premium mt-1">ستظهر إعلانات المدرسة هنا.</p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {items.map((item) => {
+            const t = TYPE_COLOR[item.type] || { dot: '#94A3B8', c: '#475569' };
+            return (
+              <div key={item.id} className="panel-card-hover flex gap-4">
+                <div className="w-1 self-stretch rounded-full flex-shrink-0" style={{ background: t.dot }} />
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-3 mb-1">
+                    <span className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: t.c }}>{item.type}</span>
+                    <span className="text-[11px] text-text-secondary">{formatDate(item.date)}</span>
+                  </div>
+                  <p className="text-[14px] font-semibold text-text-primary mb-1">{item.title}</p>
+                  <p className="text-[13px] text-text-secondary leading-relaxed">{item.description}</p>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ════════════════════════════════════════
+   SNAPSHOT VIEW  (full page)
+════════════════════════════════════════ */
+function SnapshotView({ snap, onBack }) {
+  if (!snap) return null;
+  const risk = RISK_AR[snap.riskStatus] || { label: snap.riskStatus || '—', color: '#475569' };
+  return (
+    <div>
+      <div className="flex items-center gap-3 mb-6">
+        <button type="button" onClick={onBack} className="action-btn focus-ring pressable">← رجوع</button>
+        <h2 className="h2-premium">الملخص الأسبوعي الذكي</h2>
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 mb-4">
+        <div className="panel-card">
+          <p className="text-[11px] font-semibold text-text-secondary uppercase tracking-wide mb-2">الاتجاه الأكاديمي</p>
+          <p className="text-[18px] font-bold text-text-primary">{DIRECTION_AR[snap.academicDirection] || snap.academicDirection || '—'}</p>
+        </div>
+        <div className="panel-card">
+          <p className="text-[11px] font-semibold text-text-secondary uppercase tracking-wide mb-2">مستوى المتابعة</p>
+          <p className="text-[18px] font-bold" style={{ color: risk.color }}>{risk.label}</p>
+        </div>
+        <div className="panel-card">
+          <p className="text-[11px] font-semibold text-text-secondary uppercase tracking-wide mb-2">تواصل ولي الأمر</p>
+          <p className="text-[18px] font-bold text-text-primary">{ENGAGE_AR[snap.parentEngagementStatus] || snap.parentEngagementStatus || '—'}</p>
+        </div>
+        <div className="panel-card">
+          <p className="text-[11px] font-semibold text-text-secondary uppercase tracking-wide mb-2">الحضور والغياب</p>
+          <p className="text-[13px] text-text-primary leading-relaxed">{snap.attendancePattern || 'لا توجد بيانات'}</p>
+        </div>
+      </div>
+
+      {snap.behaviorNote && (
+        <div className="panel-card">
+          <p className="text-[11px] font-semibold text-text-secondary uppercase tracking-wide mb-2">ملاحظات السلوك</p>
+          <p className="text-[14px] text-text-primary leading-relaxed">{snap.behaviorNote}</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ════════════════════════════════════════
+   MAIN DASHBOARD VIEW
+════════════════════════════════════════ */
+function DashboardView({ portalData, subjects, onSelectSubject, setView }) {
+  const feedback     = portalData?.recentFeedback || [];
+  const announcements= (portalData?.announcements || []).map((a) => ({ ...a, type: a.subject || 'إعلان' }));
+  const snap         = portalData?.weeklySnapshot;
+
+  const allGrades  = subjects.flatMap((s) => s.grades || []);
+  const overallAvg = (() => {
+    const ts = allGrades.reduce((a, r) => a + Number(r.score || 0), 0);
+    const to = allGrades.reduce((a, r) => a + Number(r.outOf || 0), 0);
+    return to ? (ts / to) * 100 : 0;
+  })();
+  const totalHW    = subjects.reduce((a, s) => a + (s.homework?.length || 0), 0);
+
+  const recentFeedback    = feedback.slice(0, 4);
+  const recentAnnounce    = announcements.slice(0, 4);
+
+  return (
+    <div className="space-y-8">
+      {/* ── Stats ── */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+        {[
+          { label: 'المتوسط العام',   value: `${formatNumber(overallAvg, 1)}٪`, accent: '#2C7BE5' },
+          { label: 'الواجبات',         value: totalHW,                            accent: '#00C853' },
+          { label: 'الملاحظات',        value: feedback.length,                    accent: '#FFB300' },
+          { label: 'المواد',           value: subjects.length,                    accent: '#8B5CF6' },
+        ].map((s) => (
+          <div key={s.label} className="panel-card flex items-center gap-3">
+            <div className="w-1 self-stretch rounded-full flex-shrink-0" style={{ background: s.accent }} />
+            <div>
+              <p className="text-[22px] font-bold text-text-primary leading-none">{s.value}</p>
+              <p className="text-[12px] text-text-secondary mt-1">{s.label}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* ── Subjects ── */}
+      <div>
+        <h2 className="h3-premium mb-4">المواد الدراسية</h2>
+        {subjects.length > 0 ? (
+          <SubjectCarousel subjects={subjects} onSelect={onSelectSubject} />
+        ) : (
+          <div className="panel-card py-12 text-center">
+            <p className="text-[15px] font-semibold text-text-primary">لا توجد مواد مخصصة</p>
+          </div>
+        )}
+      </div>
+
+      {/* ── Bottom row: Feedback preview + Announcements preview ── */}
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+
+        {/* Feedback preview */}
+        <div>
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-[15px] font-semibold text-text-primary">آخر الملاحظات</h3>
+            {feedback.length > 0 && (
+              <button type="button" onClick={() => setView(VIEW.feedback)} className="text-[12px] font-semibold text-primary hover:opacity-75 focus-ring">
+                عرض الكل ({feedback.length})
+              </button>
+            )}
+          </div>
+          {!recentFeedback.length ? (
+            <div className="panel-card py-8 text-center">
+              <p className="caption-premium">لا توجد ملاحظات</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {recentFeedback.map((item) => {
+                const s = CATCOLOR[item.category] || CATCOLOR['أخرى'];
+                return (
+                  <div key={item.id} className="panel-card flex items-start gap-3 py-3">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-0.5">
+                        <p className="text-[13px] font-semibold text-text-primary truncate">{item.subjectName}</p>
+                        <span className="flex-shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded-full" style={{ background: s.bg, color: s.c }}>{item.category}</span>
+                      </div>
+                      <p className="text-[12px] text-text-secondary clamp-2">{item.preview}</p>
+                    </div>
+                    <span className="flex-shrink-0 text-[11px] text-text-secondary">{formatDate(item.date)}</span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* Right column: Announcements + Snapshot link */}
+        <div className="space-y-4">
+          {/* Announcements preview */}
+          <div>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-[15px] font-semibold text-text-primary">الإعلانات</h3>
+              {announcements.length > 0 && (
+                <button type="button" onClick={() => setView(VIEW.announcements)} className="text-[12px] font-semibold text-primary hover:opacity-75 focus-ring">
+                  عرض الكل
+                </button>
+              )}
+            </div>
+            {!recentAnnounce.length ? (
+              <div className="panel-card py-6 text-center">
+                <p className="caption-premium">لا توجد إعلانات</p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {recentAnnounce.map((item) => {
+                  const t = TYPE_COLOR[item.type] || { dot:'#94A3B8', c:'#475569' };
+                  return (
+                    <div key={item.id} className="panel-card flex items-start gap-3 py-3">
+                      <div className="w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0" style={{ background: t.dot }} />
+                      <div className="min-w-0 flex-1">
+                        <p className="text-[13px] font-semibold text-text-primary truncate">{item.title}</p>
+                        <p className="text-[11px] text-text-secondary mt-0.5">{formatDate(item.date)}</p>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* AI Snapshot link card */}
+          {snap && (
+            <button
+              type="button"
+              onClick={() => setView(VIEW.snapshot)}
+              className="w-full panel-card-hover text-right flex items-center justify-between gap-3 py-4"
+            >
+              <div>
+                <p className="text-[13px] font-semibold text-text-primary">الملخص الأسبوعي الذكي</p>
+                <p className="text-[12px] text-text-secondary mt-0.5">
+                  {DIRECTION_AR[snap.academicDirection] || '—'}
+                  {snap.riskStatus && ` · مستوى ${(RISK_AR[snap.riskStatus] || {}).label || ''}`}
+                </p>
+              </div>
+              <ChevLeft />
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ════════════════════════════════════════
+   ROOT PAGE
+════════════════════════════════════════ */
+export default function StudentPortalPage() {
+  const navigate = useNavigate();
+  const { token, user, logout } = useAuth();
+
+  const [loading, setLoading]       = useState(true);
+  const [error, setError]           = useState('');
+  const [portalData, setPortalData] = useState(null);
+  const [view, setView]             = useState(VIEW.dashboard);
+  const [activeSubjectId, setActiveSubjectId] = useState(null);
+
+  useEffect(() => {
+    let active = true;
+    const load = async () => {
+      try {
+        setLoading(true); setError('');
+        const payload = await fetchStudentPortal(token);
+        if (!active) return;
+        setPortalData({
+          ...payload,
+          subjects: (payload.subjects || []).map((s) => ({
+            ...s,
+            image: resolveSubjectImage(s.name),
+            feedbackItems: (s.feedbackItems || []).map((f) => ({ ...f, category: mapCat(f.category) })),
+          })),
+          recentFeedback: (payload.recentFeedback || []).map((f) => ({ ...f, category: mapCat(f.category) })),
+        });
+      } catch (e) {
+        if (active) { setError(e?.message || 'تعذّر تحميل البوابة.'); setPortalData(null); }
+      } finally {
+        if (active) setLoading(false);
+      }
+    };
+    if (token) load(); else setLoading(false);
+    return () => { active = false; };
+  }, [token]);
+
+  const subjects = portalData?.subjects || [];
+  const selectedSubject = useMemo(
+    () => (activeSubjectId ? subjects.find((s) => s.id === activeSubjectId) || null : null),
+    [activeSubjectId, subjects]
+  );
+
+  const handleLogout = () => { logout(); navigate('/login', { replace: true }); };
+
+  const handleSelectSubject = (id) => { setActiveSubjectId(id); setView(VIEW.subject); };
+  const handleBack = () => { setActiveSubjectId(null); setView(VIEW.dashboard); };
+
+  const studentName = portalData?.student?.name || user?.name || 'الطالب';
+  const className   = portalData?.student?.className || user?.classes?.[0] || '';
+  const avatarUrl   = portalData?.student?.avatarUrl || user?.profilePicture || '';
+  const notifCount  = (portalData?.recentFeedback || []).length;
+
+  /* Subject full-page view */
+  if (view === VIEW.subject && selectedSubject) {
+    return (
+      <SubjectPage
+        subject={selectedSubject}
+        allSubjects={subjects}
+        subjectDetails={{}}
+        recentFeedback={portalData?.recentFeedback || []}
+        onBack={handleBack}
+        onSwitch={(id) => { setActiveSubjectId(id); }}
+      />
+    );
+  }
+
+  const navLabel = {
+    [VIEW.feedback]:      'الملاحظات',
+    [VIEW.announcements]: 'الإعلانات',
+    [VIEW.snapshot]:      'الملخص الأسبوعي',
+  };
+
+  return (
+    <main dir="rtl" className="min-h-screen bg-background">
+      {/* ── Sticky top bar ── */}
+      <div className="sticky top-0 z-20 bg-surface border-b border-border">
+        <div className="max-w-[1320px] mx-auto px-8 h-14 flex items-center justify-between gap-4">
+
+          {/* Left: breadcrumb */}
+          <div className="flex items-center gap-2 min-w-0">
+            {view !== VIEW.dashboard ? (
+              <>
+                <button type="button" onClick={() => setView(VIEW.dashboard)} className="text-[13px] text-text-secondary hover:text-text-primary premium-transition focus-ring">
+                  البوابة الأكاديمية
+                </button>
+                <span className="text-text-secondary text-[13px]">/</span>
+                <span className="text-[13px] font-semibold text-text-primary">{navLabel[view]}</span>
+              </>
+            ) : (
+              <div className="flex items-center gap-2.5">
+                {avatarUrl ? (
+                  <img src={avatarUrl} alt={studentName} className="w-7 h-7 rounded-full border border-border object-cover" />
+                ) : (
+                  <div className="w-7 h-7 rounded-full bg-slate-100 border border-border flex items-center justify-center text-[11px] font-bold text-text-secondary">
+                    {studentName?.[0] || 'ط'}
+                  </div>
+                )}
+                <div>
+                  <span className="text-[14px] font-semibold text-text-primary">{studentName}</span>
+                  {className && <span className="text-[12px] text-text-secondary mr-2">الصف {className}</span>}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Right: actions */}
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <button type="button" aria-label="الإشعارات" className="relative action-btn w-9 h-9 px-0 focus-ring">
+              <BellIcon />
+              {notifCount > 0 && (
+                <span className="absolute -top-1 -left-1 min-w-[16px] h-4 bg-danger text-white text-[9px] font-bold rounded-full flex items-center justify-center px-1">
+                  {notifCount > 9 ? '9+' : notifCount}
+                </span>
+              )}
+            </button>
+            <Link to="/student/schedule" className="action-btn focus-ring pressable text-[13px]">الجدول الأسبوعي</Link>
+            <button type="button" onClick={handleLogout} className="action-btn focus-ring pressable text-[13px]">خروج</button>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Content ── */}
+      <div className="max-w-[1320px] mx-auto px-8 py-8">
+
+        {error && (
+          <div className="mb-6 rounded-sm border border-danger/30 bg-red-50 px-4 py-3 text-[13px] text-danger">{error}</div>
+        )}
+
+        {loading ? (
+          <div className="space-y-4">
+            <div className="grid grid-cols-4 gap-4">
+              {[1,2,3,4].map((k) => <div key={k} className="skeleton h-20" />)}
+            </div>
+            <div className="grid grid-cols-5 gap-4">
+              {[1,2,3,4,5].map((k) => <div key={k} className="skeleton h-56" />)}
+            </div>
+          </div>
+        ) : view === VIEW.dashboard ? (
+          <DashboardView
+            portalData={portalData}
+            subjects={subjects}
+            onSelectSubject={handleSelectSubject}
+            setView={setView}
+          />
+        ) : view === VIEW.feedback ? (
+          <FeedbackView items={portalData?.recentFeedback || []} onBack={() => setView(VIEW.dashboard)} />
+        ) : view === VIEW.announcements ? (
+          <AnnouncementsView
+            items={(portalData?.announcements || []).map((a) => ({ ...a, type: a.subject || 'إعلان' }))}
+            onBack={() => setView(VIEW.dashboard)}
+          />
+        ) : view === VIEW.snapshot ? (
+          <SnapshotView snap={portalData?.weeklySnapshot} onBack={() => setView(VIEW.dashboard)} />
+        ) : null}
+      </div>
+    </main>
+  );
+}

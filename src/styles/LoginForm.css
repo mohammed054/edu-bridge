@@ -1,0 +1,98 @@
+﻿:root {
+  --primary: #1f8ef1;
+  --background: #f1f6f9;
+  --accent: #ffb400;
+  --text: #333333;
+  --surface: #ffffff;
+  --border: #d7e4ee;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  min-height: 100%;
+}
+
+body {
+  direction: rtl;
+  color: var(--text);
+  font-family: 'Segoe UI', Tahoma, sans-serif;
+  background: var(--background);
+}
+
+.login-page {
+  min-height: 100dvh;
+  padding: 1rem;
+  display: grid;
+  place-items: center;
+}
+
+.login-card {
+  width: min(100%, 420px);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 1rem;
+  box-shadow: 0 8px 18px rgba(18, 36, 49, 0.08);
+}
+
+.school-logo {
+  width: 66px;
+  height: 66px;
+  object-fit: contain;
+  margin-bottom: 0.6rem;
+}
+
+.login-card h1 {
+  margin: 0;
+  font-size: 1.25rem;
+}
+
+.login-note {
+  margin: 0.5rem 0 0;
+  color: #5b7488;
+}
+
+.login-form {
+  margin-top: 1rem;
+  display: grid;
+  gap: 0.55rem;
+}
+
+.login-form label {
+  font-size: 0.9rem;
+}
+
+.login-form input {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0.65rem 0.75rem;
+}
+
+.login-error {
+  margin: 0;
+  color: #c53030;
+  font-size: 0.88rem;
+}
+
+.login-cta {
+  margin-top: 0.2rem;
+  border: 0;
+  border-radius: 10px;
+  background: var(--primary);
+  color: #fff;
+  padding: 0.7rem 0.8rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.login-cta:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 14px rgba(31, 142, 241, 0.22);
+}

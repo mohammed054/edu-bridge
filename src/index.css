@@ -1,0 +1,131 @@
+@import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+  --color-primary: #2C7BE5;
+  --color-accent: #00E5FF;
+  --color-success: #00C853;
+  --color-warning: #FFB300;
+  --color-danger: #D32F2F;
+  --color-background: #F8FAFC;
+  --color-surface: #FFFFFF;
+  --color-border: #E2E8F0;
+  --color-text-primary: #0F172A;
+  --color-text-secondary: #475569;
+  --gradient-card: linear-gradient(135deg, rgba(44, 123, 229, 0.14) 0%, rgba(0, 229, 255, 0.12) 100%);
+  --gradient-sidebar-active: linear-gradient(120deg, rgba(44, 123, 229, 0.18) 0%, rgba(0, 229, 255, 0.1) 100%);
+  --shadow-sm: 0 2px 10px rgba(15, 23, 42, 0.06);
+  --shadow-md: 0 10px 24px rgba(15, 23, 42, 0.08);
+  --shadow-lg: 0 18px 40px rgba(15, 23, 42, 0.12);
+  --radius-sm: 8px;
+  --radius-md: 14px;
+  --radius-lg: 20px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: 'Cairo', sans-serif;
+  background: var(--color-background);
+  background-image: radial-gradient(1200px 500px at 90% -10%, rgba(0, 229, 255, 0.11), transparent 65%),
+    radial-gradient(1000px 500px at -5% 0%, rgba(44, 123, 229, 0.08), transparent 70%);
+  color: var(--color-text-primary);
+  direction: rtl;
+}
+
+h1,
+h2,
+h3,
+p {
+  margin: 0;
+}
+
+@layer components {
+  .h1-premium {
+    @apply text-[32px] font-bold leading-tight text-text-primary;
+  }
+
+  .h2-premium {
+    @apply text-[24px] font-semibold leading-tight text-text-primary;
+  }
+
+  .h3-premium {
+    @apply text-[20px] font-semibold leading-snug text-text-primary;
+  }
+
+  .body-premium {
+    @apply text-[16px] font-normal leading-7 text-text-primary;
+  }
+
+  .caption-premium {
+    @apply text-[14px] font-normal leading-6 text-text-secondary;
+  }
+
+  .surface-card {
+    @apply rounded-md border border-border bg-surface shadow-sm;
+  }
+
+  .premium-transition {
+    @apply transition-all duration-200 ease-out;
+  }
+
+  .pressable {
+    @apply active:scale-[0.98];
+  }
+
+  .focus-ring {
+    @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2;
+  }
+
+  .page-enter {
+    @apply animate-fadeUp;
+  }
+
+  .panel-card {
+    @apply rounded-md border border-border bg-surface p-4 shadow-sm;
+  }
+
+  .panel-card-hover {
+    @apply panel-card premium-transition hover:shadow-md;
+  }
+
+  .action-btn {
+    @apply premium-transition pressable inline-flex items-center justify-center rounded-sm border border-border px-3 py-2 text-sm font-semibold text-text-secondary hover:border-primary hover:text-primary;
+  }
+
+  .action-btn-primary {
+    @apply action-btn border-transparent bg-primary text-white hover:brightness-95 hover:text-white;
+  }
+
+  .skeleton {
+    @apply relative overflow-hidden rounded-sm bg-border/70;
+  }
+
+  .skeleton::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    transform: translateX(-100%);
+    animation: skeleton-shimmer 1.2s ease-out infinite;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.75), transparent);
+  }
+}
+
+@keyframes skeleton-shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
