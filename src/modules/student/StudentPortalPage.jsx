@@ -139,9 +139,41 @@ function TopNav({ studentName, avatarUrl, notifCount, onLogout }) {
    HORIZONTAL TAB BAR  — rendered below welcome card
 ════════════════════════════════════════ */
 function TabBar({ activeTab, onTabChange }) {
+  const scrollRef = useRef(null);
+  const [canScrollLeft, setCanScrollLeft] = useState(false);
+  const [canScrollRight, setCanScrollRight] = useState(false);
+
+  const checkScroll = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    setCanScrollLeft(el.scrollLeft > 4);
+    setCanScrollRight(el.scrollLeft < el.scrollWidth - el.clientWidth - 4);
+  }, []);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    checkScroll();
+    el.addEventListener('scroll', checkScroll, { passive: true });
+    const ro = new ResizeObserver(checkScroll);
+    ro.observe(el);
+    return () => { el.removeEventListener('scroll', checkScroll); ro.disconnect(); };
+  }, [checkScroll]);
+
+  const nudge = (dir) => {
+    scrollRef.current?.scrollBy({ left: dir * -160, behavior: 'smooth' });
+  };
+
   return (
     <div className="tabbar-wrap">
-      <div className="tabbar-inner" role="tablist">
+      {/* Left arrow (in RTL = scroll right through content) */}
+      {canScrollLeft && (
+        <button type="button" className="tabbar-scroll-arrow tabbar-scroll-arrow-start" onClick={() => nudge(-1)} aria-label="تمرير يساراً">
+          <ChevRight />
+        </button>
+      )}
+
+      <div ref={scrollRef} className="tabbar-inner" role="tablist">
         {TABS.map((t) => (
           <button
             key={t.id}
@@ -157,6 +189,13 @@ function TabBar({ activeTab, onTabChange }) {
           </button>
         ))}
       </div>
+
+      {/* Right arrow (more content hint) */}
+      {canScrollRight && (
+        <button type="button" className="tabbar-scroll-arrow tabbar-scroll-arrow-end" onClick={() => nudge(1)} aria-label="تمرير يميناً">
+          <ChevLeft />
+        </button>
+      )}
     </div>
   );
 }
@@ -275,18 +314,63 @@ function PremiumCarousel({ subjects, onSelect }) {
 }
 
 /* ════════════════════════════════════════
-   METRIC CARD  (animated)
+   SUMMARY CARDS  (2 meaningful ones)
 ════════════════════════════════════════ */
-function MetricCard({ label, value, accent, icon, delay = 0 }) {
+function SummaryCards({ subjects, feedback, onTabChange }) {
+  const totalHW = subjects.reduce((a, s) => a + (s.homework?.length || 0), 0);
+  const doneHW  = subjects.reduce((a, s) => a + (s.homework || []).filter((h) => h.status === 'مكتمل').length, 0);
+  const latest  = feedback[0] || null;
+  const s = latest ? (CATCOLOR[latest.category] || CATCOLOR['أخرى']) : null;
+
   return (
-    <div className="metric-card-premium" style={{ '--accent': accent, animationDelay: `${delay}ms` }}>
-      <div className="metric-card-icon" style={{ background: `${accent}15`, color: accent }}>{icon}</div>
-      <div>
-        <p className="metric-card-value" style={{ color: accent }}>
-          <AnimatedNumber value={parseFloat(String(value).replace('%', '').replace('٪', ''))} decimals={String(value).includes('.') ? 1 : 0} />{String(value).includes('%') || String(value).includes('٪') ? '٪' : ''}
-        </p>
-        <p className="metric-card-label">{label}</p>
+    <div className="summary-cards-row">
+      {/* Homework card */}
+      <div className="summary-card">
+        <div className="summary-card-header">
+          <div className="summary-card-icon" style={{ background: '#F0FDF4', color: '#00C853' }}>📝</div>
+          <div>
+            <p className="summary-card-title">الواجبات</p>
+            <p className="summary-card-sub">
+              {doneHW > 0 ? `${doneHW} مكتمل من ${totalHW}` : `${totalHW} واجب`}
+            </p>
+          </div>
+        </div>
+        {totalHW > 0 && (
+          <div className="summary-progress-track">
+            <div
+              className="summary-progress-fill"
+              style={{ width: `${totalHW ? (doneHW / totalHW) * 100 : 0}%`, background: '#00C853' }}
+            />
+          </div>
+        )}
       </div>
+
+      {/* Latest feedback card */}
+      <button
+        type="button"
+        className="summary-card summary-card-clickable"
+        onClick={() => onTabChange(TAB.notes)}
+      >
+        <div className="summary-card-header">
+          <div className="summary-card-icon" style={{ background: '#FFF7ED', color: '#F97316' }}>🔔</div>
+          <div>
+            <p className="summary-card-title">الملاحظات</p>
+            <p className="summary-card-sub">{feedback.length} ملاحظة — اضغط للعرض</p>
+          </div>
+        </div>
+        {latest ? (
+          <div className="summary-feedback-preview">
+            <div className="summary-feedback-top">
+              <span className="summary-feedback-subject">{latest.subjectName}</span>
+              <span className="summary-feedback-badge" style={{ background: s.bg, color: s.c }}>{latest.category}</span>
+              <span className="summary-feedback-date">{formatDate(latest.date)}</span>
+            </div>
+            <p className="summary-feedback-text clamp-2">{latest.preview}</p>
+          </div>
+        ) : (
+          <p className="summary-empty-hint">لا توجد ملاحظات حالياً</p>
+        )}
+      </button>
     </div>
   );
 }
@@ -326,41 +410,19 @@ function WelcomeCard({ studentName, className, avatarUrl }) {
 function DashboardTab({ portalData, subjects, onSelectSubject, onTabChange }) {
   const feedback = portalData?.recentFeedback || [];
   const snap = portalData?.weeklySnapshot;
-
-  const allGrades = subjects.flatMap((s) => s.grades || []);
-  const overallAvg = (() => {
-    const ts = allGrades.reduce((a, r) => a + Number(r.score || 0), 0);
-    const to = allGrades.reduce((a, r) => a + Number(r.outOf || 0), 0);
-    return to ? (ts / to) * 100 : 0;
-  })();
-  const totalHW = subjects.reduce((a, s) => a + (s.homework?.length || 0), 0);
-
-  const metrics = [
-    { label: 'المتوسط العام', value: `${formatNumber(overallAvg, 1)}%`, accent: '#2C7BE5', icon: '📊' },
-    { label: 'المواد الدراسية', value: subjects.length, accent: '#8B5CF6', icon: '📚' },
-    { label: 'الواجبات', value: totalHW, accent: '#00C853', icon: '📝' },
-    { label: 'الملاحظات', value: feedback.length, accent: '#F97316', icon: '🔔' },
-  ];
-
   const recentNotes = feedback.slice(0, 3);
 
   return (
     <div className="tab-content fade-in-up">
-      {/* Welcome */}
-      <div className="welcome-section" />
 
-      {/* Metric Cards */}
-      <div className="metrics-row">
-        {metrics.map((m, i) => (
-          <MetricCard key={m.label} {...m} delay={i * 60} />
-        ))}
-      </div>
+      {/* 2-card summary row */}
+      <SummaryCards subjects={subjects} feedback={feedback} onTabChange={onTabChange} />
 
       {/* Subjects */}
       <section className="section-block">
         <div className="section-header">
           <h2 className="section-title-premium">المواد الدراسية</h2>
-          <p className="section-subtitle-premium">اضغط أو اسحب لاستعراض المواد</p>
+          <p className="section-subtitle-premium">اسحب أو اضغط للاستعراض ←</p>
         </div>
         {subjects.length > 0 ? (
           <PremiumCarousel subjects={subjects} onSelect={onSelectSubject} />
@@ -1172,28 +1234,33 @@ const PREMIUM_CSS = `
 .nav-logout:hover { background: #FEF2F2 !important; border-color: #FECACA !important; color: #D32F2F !important; }
 .nav-logout-label { font-size: 13px; }
 
-/* ── Tab Bar — below welcome card, prominent ── */
+/* ── Tab Bar — below welcome card ── */
 .tabbar-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
   background: #fff;
   border: 1px solid #E8ECF4;
   border-radius: 16px;
   padding: 6px;
   margin-bottom: 28px;
   box-shadow: 0 2px 12px rgba(15,23,42,0.05);
-  overflow-x: auto;
-  scrollbar-width: none;
+  gap: 4px;
 }
-.tabbar-wrap::-webkit-scrollbar { display: none; }
 .tabbar-inner {
+  flex: 1;
   display: flex;
   align-items: center;
   gap: 4px;
-  min-width: max-content;
+  overflow-x: auto;
+  scrollbar-width: none;
+  scroll-behavior: smooth;
 }
+.tabbar-inner::-webkit-scrollbar { display: none; }
 .tabbar-tab {
   position: relative;
   display: flex; align-items: center; gap: 8px;
-  padding: 10px 20px;
+  padding: 10px 18px;
   border: none; background: none; cursor: pointer;
   font-family: 'Cairo', sans-serif;
   font-size: 14px; font-weight: 600;
@@ -1201,6 +1268,7 @@ const PREMIUM_CSS = `
   border-radius: 11px;
   transition: color 200ms ease, background 200ms ease;
   white-space: nowrap;
+  flex-shrink: 0;
 }
 .tabbar-tab:hover { color: #0F172A; background: #F8FAFC; }
 .tabbar-tab-active {
@@ -1221,8 +1289,104 @@ const PREMIUM_CSS = `
   from { transform: scaleX(0); opacity: 0; }
   to   { transform: scaleX(1); opacity: 1; }
 }
+/* Scroll arrows inside tabbar */
+.tabbar-scroll-arrow {
+  flex-shrink: 0;
+  width: 32px; height: 32px;
+  border-radius: 8px;
+  border: 1px solid #E8ECF4;
+  background: #F8FAFC;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer;
+  color: #64748B;
+  transition: all 180ms ease;
+  animation: fadeUp 200ms ease;
+}
+.tabbar-scroll-arrow:hover {
+  background: #EFF6FF;
+  border-color: #BFDBFE;
+  color: #2C7BE5;
+}
 
-/* ── Portal Content ── */
+/* ── Summary Cards (2-card row) ── */
+.summary-cards-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 28px;
+}
+@media (max-width: 600px) { .summary-cards-row { grid-template-columns: 1fr; } }
+.summary-card {
+  background: #fff;
+  border: 1px solid #E8ECF4;
+  border-radius: 16px;
+  padding: 18px 20px;
+  box-shadow: 0 2px 12px rgba(15,23,42,0.05);
+  animation: fadeUp 350ms ease both;
+  text-align: right;
+}
+.summary-card-clickable {
+  cursor: pointer;
+  transition: transform 200ms ease, box-shadow 200ms ease;
+  font-family: 'Cairo', sans-serif;
+  width: 100%;
+}
+.summary-card-clickable:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 8px 24px rgba(15,23,42,0.09);
+  border-color: #F97316;
+}
+.summary-card-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.summary-card-icon {
+  width: 40px; height: 40px;
+  border-radius: 11px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 19px;
+  flex-shrink: 0;
+}
+.summary-card-title {
+  font-size: 15px; font-weight: 700; color: #0F172A; margin: 0 0 2px;
+}
+.summary-card-sub {
+  font-size: 12px; color: #64748B; margin: 0;
+}
+.summary-progress-track {
+  height: 7px;
+  background: #F1F5F9;
+  border-radius: 999px;
+  overflow: hidden;
+}
+.summary-progress-fill {
+  height: 100%;
+  border-radius: 999px;
+  transition: width 900ms cubic-bezier(0.16,1,0.3,1);
+}
+.summary-feedback-preview {
+  background: #FFF7ED;
+  border: 1px solid #FED7AA;
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+.summary-feedback-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+  flex-wrap: wrap;
+}
+.summary-feedback-subject { font-size: 12px; font-weight: 700; color: #0F172A; }
+.summary-feedback-badge {
+  font-size: 10px; font-weight: 700;
+  padding: 2px 7px; border-radius: 999px;
+}
+.summary-feedback-date { font-size: 11px; color: #94A3B8; margin-right: auto; }
+.summary-feedback-text { font-size: 12px; color: #64748B; line-height: 1.6; margin: 0; }
+.summary-empty-hint { font-size: 13px; color: #94A3B8; margin: 0; text-align: center; padding: 8px 0; }
 .portal-content {
   max-width: 1360px;
   margin: 0 auto;
@@ -1309,50 +1473,6 @@ const PREMIUM_CSS = `
   font-size: 28px; font-weight: 800; color: #fff;
 }
 
-/* ── Metric Cards ── */
-.metrics-row {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0,1fr));
-  gap: 16px;
-  margin-bottom: 32px;
-}
-@media (max-width: 900px) { .metrics-row { grid-template-columns: repeat(2,1fr); } }
-@media (max-width: 520px) { .metrics-row { grid-template-columns: 1fr; } }
-.metric-card-premium {
-  background: #fff;
-  border: 1px solid #E8ECF4;
-  border-radius: 16px;
-  padding: 20px;
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  box-shadow: 0 2px 12px rgba(15,23,42,0.05);
-  animation: fadeUp 400ms ease both;
-  transition: transform 220ms ease, box-shadow 220ms ease;
-}
-.metric-card-premium:hover {
-  transform: translateY(-3px);
-  box-shadow: 0 8px 24px rgba(15,23,42,0.10);
-}
-.metric-card-icon {
-  width: 44px; height: 44px;
-  border-radius: 12px;
-  display: flex; align-items: center; justify-content: center;
-  font-size: 20px;
-  flex-shrink: 0;
-}
-.metric-card-value {
-  font-size: 24px;
-  font-weight: 800;
-  line-height: 1;
-  margin: 0 0 4px;
-}
-.metric-card-label {
-  font-size: 12px;
-  color: #64748B;
-  margin: 0;
-}
-
 /* ── Section Block ── */
 .section-block {
   margin-bottom: 32px;
@@ -1401,7 +1521,7 @@ const PREMIUM_CSS = `
 .carousel-arrow {
   position: absolute;
   top: 50%;
-  transform: translateY(-50%);
+  transform: translateY(-60%); /* offset for padding-top on track */
   z-index: 3;
   width: 36px; height: 36px;
   border-radius: 50%;
@@ -1418,7 +1538,7 @@ const PREMIUM_CSS = `
   background: #2C7BE5;
   color: #fff;
   border-color: #2C7BE5;
-  transform: translateY(-50%) scale(1.05);
+  transform: translateY(-60%) scale(1.05);
 }
 .carousel-arrow-start { right: 0; }
 .carousel-arrow-end { left: 0; }
@@ -1426,9 +1546,11 @@ const PREMIUM_CSS = `
   display: flex;
   gap: 16px;
   overflow-x: auto;
+  overflow-y: visible; /* CRITICAL: allow cards to lift without clipping */
   scroll-snap-type: x mandatory;
   scrollbar-width: none;
-  padding-bottom: 8px;
+  padding-top: 10px;   /* room for hover lift */
+  padding-bottom: 12px;
   cursor: grab;
   user-select: none;
 }
@@ -1444,23 +1566,18 @@ const PREMIUM_CSS = `
   cursor: pointer;
   text-align: right;
   position: relative;
-  transition: transform 240ms cubic-bezier(0.16,1,0.3,1), box-shadow 240ms ease;
+  transition: transform 240ms cubic-bezier(0.16,1,0.3,1), box-shadow 240ms ease, border-color 240ms ease;
   box-shadow: 0 2px 10px rgba(15,23,42,0.05);
 }
 .carousel-card:hover {
   transform: translateY(-6px) scale(1.01);
-  box-shadow: 0 16px 36px rgba(15,23,42,0.12);
+  box-shadow: 0 16px 36px rgba(15,23,42,0.13);
   border-color: var(--accent);
 }
 .carousel-card:active { transform: scale(0.97); }
-.carousel-card-accent-bar {
-  height: 3px;
-  width: 100%;
-}
+.carousel-card-accent-bar { height: 3px; width: 100%; }
 .carousel-card-img-zone {
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  display: flex; align-items: center; justify-content: center;
   padding: 20px 16px;
   background: #F8FAFC;
 }
@@ -1471,37 +1588,18 @@ const PREMIUM_CSS = `
   pointer-events: none;
 }
 .carousel-card:hover .carousel-card-img { transform: scale(1.08); }
-.carousel-card-info {
-  padding: 12px 14px 14px;
-  border-top: 1px solid #F1F5F9;
-}
+.carousel-card-info { padding: 12px 14px 14px; border-top: 1px solid #F1F5F9; }
 .carousel-card-name {
-  font-size: 13px;
-  font-weight: 700;
-  color: #0F172A;
-  margin: 0 0 3px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  font-size: 13px; font-weight: 700; color: #0F172A;
+  margin: 0 0 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .carousel-card-teacher {
-  font-size: 11px;
-  color: #94A3B8;
-  margin: 0 0 8px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  font-size: 11px; color: #94A3B8;
+  margin: 0 0 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.carousel-card-cta {
-  font-size: 11px;
-  font-weight: 700;
-  margin: 0;
-}
+.carousel-card-cta { font-size: 11px; font-weight: 700; margin: 0; }
 .carousel-card-hover-glow {
-  position: absolute;
-  inset: 0;
-  border-radius: 16px;
-  opacity: 0;
+  position: absolute; inset: 0; border-radius: 16px; opacity: 0;
   transition: opacity 240ms ease;
   box-shadow: inset 0 0 0 2px var(--accent);
   pointer-events: none;
